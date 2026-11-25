@@ -99,10 +99,10 @@ export async function promptBox(title, value = '', { type = 'text', hint, placeh
   const input = h('input', { type, value, placeholder: placeholder || '' });
   const r = await dialog({
     title, body: [input, hint ? h('p', { class: 'hint' }, hint) : null],
-    actions: [{ label: '취소', value: null }, { label: '확인', kind: 'primary', run: () => input.value }],
-    onOpen: () => { input.focus(); input.select(); input.addEventListener('keydown', e => { if (e.key === 'Enter') e.target.closest('dialog').querySelector('.btn.primary').click(); }); }
+    actions: [{ label: '취소', value: null }, { label: '확인', kind: 'primary', value: 'ok' }],
+    onOpen: () => { input.focus(); input.select(); input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.target.closest('dialog').querySelector('.btn.primary').click(); } }); }
   });
-  return r === undefined || r === null ? null : input.value;
+  return r === 'ok' ? input.value : null;
 }
 
 export async function copyText(text, label = '복사했습니다') {
@@ -137,6 +137,8 @@ export async function shrinkImage(blob, max = 1600, quality = 0.86) {
 export const icons = {
   journal: '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11M9 8h6"/>',
   notes: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h5"/>',
+  devtools: '<path d="M14.5 6.5a4 4 0 0 0-5.2 5.2L4 17v3h3l5.3-5.3a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.3-.6-.6-2.3z"/>',
+  code: '<path d="m8.5 8-4 4 4 4M15.5 8l4 4-4 4M13.5 5.5l-3 13"/>',
   aimd: '<path d="M4 6h16v10H9l-5 4z"/><path d="M8 10h8M8 13h5"/>',
   knowledge: '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="10" cy="18" r="2.5"/><path d="M8 7.5l7.6 1M7 8.3l2.2 7.4M16.4 10l-4.6 6.2"/>',
   schedule: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
@@ -152,6 +154,11 @@ export const icons = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
   manual: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M9 8h6"/>',
   more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
+  flow: '<rect x="3" y="3.5" width="7" height="5" rx="1.5"/><path d="M17.5 3l4 4-4 4-4-4z"/><rect x="9" y="16" width="7" height="5" rx="1.5"/><path d="M10 6h3.5M17.5 11v3.5H12.5V16M6.5 8.5v10H9"/>',
+  mindmap: '<circle cx="12" cy="12" r="3"/><circle cx="4.5" cy="5.5" r="2"/><circle cx="19.5" cy="5.5" r="2"/><circle cx="4.5" cy="18.5" r="2"/><circle cx="19.5" cy="18.5" r="2"/><path d="M9.8 10L6 7M14.2 10L18 7M9.8 14L6 17M14.2 14L18 17"/>',
+  widget: '<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>',
+  power: '<path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>',
+  photos: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/>',
   lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'
 };
 export function icon(name) {

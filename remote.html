@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F3F4F9">
+<meta name="robots" content="noindex">
+<title>원격 지원</title>
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+<style>
+  body { min-height: 100dvh; }
+  .rg { max-width: 640px; margin: 0 auto; padding: 28px 18px 40px; display: grid; gap: 16px; }
+  .rg-card { background: #fff; border: 1px solid var(--rule); border-radius: 20px; padding: 22px; box-shadow: var(--shadow-2); display: grid; gap: 14px; }
+  .rg h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
+  .rg .lead { margin: 0; color: var(--ink-2); }
+  .rg .big { min-height: 54px; font-size: 17px; justify-content: center; border-radius: 14px; }
+  .rg-status { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+  .rg-status i { width: 10px; height: 10px; border-radius: 50%; background: #E0A86A; flex: none; }
+  .rg-status.ok i { background: #4FA98C; }
+  .rg-status.err i { background: var(--red); }
+  .rg-preview { position: relative; border-radius: 14px; overflow: hidden; background: #1E2230; display: none; }
+  .rg-preview.on { display: block; }
+  .rg-preview video { width: 100%; display: block; max-height: 46dvh; object-fit: contain; }
+  .rg-dot { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 4px solid #E5484D; border-radius: 50%; box-shadow: 0 0 0 4px rgba(229,72,77,.25); pointer-events: none; display: none; }
+  .rg-chat { display: grid; gap: 8px; }
+  .rg-log { max-height: 220px; overflow-y: auto; display: grid; gap: 8px; align-content: start; }
+  .rg-steps { margin: 0; padding-left: 20px; color: var(--ink-2); font-size: 14.5px; display: grid; gap: 4px; }
+  .rg-ctl { border-top: 1px solid var(--fog-2); padding-top: 14px; display: grid; gap: 10px; }
+  .rg small { color: var(--ink-3); }
+</style>
+</head>
+<body>
+<div class="rg" id="rg">
+  <div class="rg-card">
+    <h1>원격 지원</h1>
+    <p class="lead" id="lead">도움을 드리려는 분과 연결합니다. 아래 버튼을 누르면 시작합니다.</p>
+    <div class="rg-status" id="status"><i></i><span>연결 준비 중…</span></div>
+    <div class="row" id="actions"></div>
+    <label class="check" id="micRow"><input type="checkbox" id="mic"> 음성 통화도 함께 (마이크)</label>
+    <div class="rg-preview" id="preview"><video id="local" autoplay muted playsinline></video><div class="rg-dot" id="dot"></div></div>
+    <audio id="remoteAudio" autoplay></audio>
+    <div class="rg-ctl" id="ctl" hidden>
+      <b>상대가 마우스·키보드를 직접 조작해야 하나요?</b>
+      <ol class="rg-steps">
+        <li>아래 <b>원격지원 도우미 받기</b>를 눌러 내려받습니다 (16KB, 설치 없음).</li>
+        <li>받은 파일을 실행합니다. Windows 경고가 뜨면 <b>추가 정보 → 실행</b>을 누릅니다.</li>
+        <li>이 페이지로 돌아오면 자동으로 연결됩니다. 브라우저가 ‘로컬 네트워크 접근’을 물으면 <b>허용</b>을 누르세요.</li>
+      </ol>
+      <div class="row"><a class="btn" id="dl" href="support/MyAideSupport.exe" download="MyAideSupport.exe">원격지원 도우미 받기</a><span id="ctlState" class="muted"></span></div>
+      <small>도우미 창을 닫거나 ‘제어 끝내기’를 누르면 즉시 조작이 끝납니다. 도우미는 개인 정보를 저장하지 않습니다.</small>
+    </div>
+  </div>
+  <div class="rg-card rg-chat">
+    <b>채팅</b>
+    <div class="rg-log" id="log"></div>
+    <div class="row"><input type="text" id="msg" class="grow" placeholder="메시지를 입력하세요" autocomplete="off"><button class="btn primary" id="send">보내기</button></div>
+  </div>
+  <p class="hint" style="text-align:center">공유를 멈추려면 브라우저의 ‘공유 중지’를 누르거나 이 창을 닫으세요.</p>
+</div>
+<script src="config.js"></script>
+<script src="vendor/peerjs.min.js"></script>
+<script src="js/remote-guest.js"></script>
+</body>
+</html>

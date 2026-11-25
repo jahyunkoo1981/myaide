@@ -4,7 +4,7 @@ import * as db from '../db.js';
 import { richEditor } from '../editor.js';
 
 const KINDS = {
-  notes: { title: '업무메모', newLabel: '새 메모', empty: '메모가 없습니다. ‘새 메모’로 시작하세요.', placeholder: '메모 내용을 적으세요.' },
+  notes: { title: '업무메모', newLabel: '새 메모', empty: '메모가 없습니다. ‘새 메모’로 시작하세요.', placeholder: '메모 내용을 적으세요. 도구 막대의 ‘프로세스’로 흐름도를 중간에 넣을 수 있습니다.' },
   aimd: { title: 'AIMD', newLabel: '새 AIMD', empty: '저장한 프롬프트가 없습니다. 자주 쓰는 AI 지시문을 모아 두세요.', placeholder: 'AI에게 줄 지시문을 적으세요.' }
 };
 
@@ -67,6 +67,17 @@ export async function mount(root, ctx) {
     const data = await db.get(col, id);
     if (!data) { pane.replaceChildren(h('div', { class: 'pad empty' }, h('b', null, '찾을 수 없습니다'), '삭제되었거나 아직 동기화되지 않았습니다.')); drawList(); return; }
     current = { ...data };
+    // 업무메모 made while it was a diagram-only page: put that diagram into the text as an editable picture.
+    let upgraded = false;
+    if (data.flow && data.flow.nodes && data.flow.nodes.length) {
+      try {
+        const { renderFlow } = await import('../flowedit.js');
+        const r = await renderFlow(data.flow);
+        data.body = `<p><img class="flow" src="${r.dataUrl}" data-flow="${encodeURIComponent(JSON.stringify(data.flow))}" width="${Math.min(r.width, 900)}" alt="프로세스"></p>` + (data.body || '');
+        upgraded = true;
+      } catch (e) { console.warn(e); }
+    }
+    delete current.flow;
     const title = h('input', { class: 'doc-title', value: data.title || '', placeholder: '제목', 'aria-label': '제목',
       oninput: e => { current.title = e.target.value; touch(); } });
     const extra = col === 'aimd' ? [{ label: '본문 복사', title: '본문을 복사해서 AI에 붙여 넣기', run: () => copyText(plainWithBreaks(ed.get()), '본문을 복사했습니다') }] : [];
@@ -81,8 +92,9 @@ export async function mount(root, ctx) {
         save.cancel(); dirty = false;
         await db.remove(col, id); toast('삭제했습니다'); ctx.go(col);
       } }, '삭제'));
-    pane.replaceChildren(h('div', { class: 'doc-head' }, meta, title), ed.toolbar, h('div', { class: 'doc-body' }, ed.body));
+    pane.replaceChildren(h('div', { class: 'doc-head' }, meta, title), ed.toolbar, h('div', { class: 'doc-wrap' }, h('div', { class: 'doc-body' }, ed.body), ed.toc));
     if (!data.title) title.focus();
+    if (upgraded) { touch(); save.flush(); }
     drawList();
   }
 

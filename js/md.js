@@ -16,6 +16,8 @@ function inline(s, wiki) {
   return t;
 }
 
+const LIST = /^(\s*)([-*+]|\d+[.)])\s+/;
+
 export function renderMarkdown(src, { exists = () => true } = {}) {
   const wiki = (target, label) =>
     `<a class="wiki${exists(target) ? '' : ' missing'}" data-wiki="${escapeHtml(target)}">${label}</a>`;
@@ -25,9 +27,10 @@ export function renderMarkdown(src, { exists = () => true } = {}) {
   while (i < lines.length) {
     const line = lines[i];
     if (/^```/.test(line)) {
+      const lang = (line.match(/^```\s*([\w#+-]+)/) || [])[1];
       const buf = []; i++;
       while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
-      i++; out.push(`<pre><code>${escapeHtml(buf.join('\n'))}</code></pre>`); continue;
+      i++; out.push(`<pre><code${lang ? ` class="language-${escapeHtml(lang)}"` : ''}>${escapeHtml(buf.join('\n'))}</code></pre>`); continue;
     }
     let m;
     if ((m = line.match(/^(#{1,4})\s+(.*)$/))) { const n = m[1].length; out.push(`<h${n}>${inline(m[2], wiki)}</h${n}>`); i++; continue; }
@@ -37,15 +40,27 @@ export function renderMarkdown(src, { exists = () => true } = {}) {
       while (i < lines.length && /^>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^>\s?/, ''));
       out.push(`<blockquote>${buf.map(b => inline(b, wiki)).join('<br>')}</blockquote>`); continue;
     }
-    if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
-      const ordered = /^\s*\d+\./.test(line);
-      const buf = [];
-      while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) {
-        let item = lines[i++].replace(/^\s*([-*+]|\d+\.)\s+/, '');
-        const task = item.match(/^\[( |x|X)\]\s+(.*)$/);
-        buf.push(task ? `<li>${task[1] === ' ' ? '☐' : '☑'} ${inline(task[2], wiki)}</li>` : `<li>${inline(item, wiki)}</li>`);
+    if (LIST.test(line)) {
+      // nested lists: deeper indentation opens a sub-list inside the item above
+      const items = [];
+      while (i < lines.length && (LIST.test(lines[i]) || (/^\s{2,}\S/.test(lines[i]) && items.length))) {
+        const l = lines[i++];
+        const m2 = l.match(LIST);
+        if (!m2) { items[items.length - 1].text += ' ' + l.trim(); continue; }
+        items.push({ ind: m2[1].replace(/\t/g, '    ').length, ordered: /\d/.test(m2[2]), text: l.slice(m2[0].length) });
       }
-      out.push(`<${ordered ? 'ol' : 'ul'}>${buf.join('')}</${ordered ? 'ol' : 'ul'}>`); continue;
+      const li = t => { const task = t.match(/^\[( |x|X)\]\s+(.*)$/); return task ? `${task[1] === ' ' ? '☐' : '☑'} ${inline(task[2], wiki)}` : inline(t, wiki); };
+      let k = 0;
+      const build = ind => {
+        const tag = items[k].ordered ? 'ol' : 'ul'; let html = `<${tag}>`;
+        while (k < items.length && items[k].ind >= ind) {
+          if (items[k].ind > ind) { html = html.replace(/<\/li>$/, '') + build(items[k].ind) + '</li>'; continue; }
+          html += `<li>${li(items[k].text)}</li>`; k++;
+        }
+        return html + `</${tag}>`;
+      };
+      while (k < items.length) out.push(build(items[k].ind));
+      continue;
     }
     if (/^\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
       const cells = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
@@ -57,7 +72,7 @@ export function renderMarkdown(src, { exists = () => true } = {}) {
     }
     if (!line.trim()) { i++; continue; }
     const buf = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|```|>|\s*([-*+]|\d+\.)\s|\|)/.test(lines[i])) buf.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|```|>|\s*([-*+]|\d+[.)])\s|\|)/.test(lines[i])) buf.push(lines[i++]);
     if (!buf.length) buf.push(lines[i++]);
     out.push(`<p>${buf.map(b => inline(b, wiki)).join('<br>')}</p>`);
   }

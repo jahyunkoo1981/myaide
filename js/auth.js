@@ -30,7 +30,7 @@ export const auth = {
     history.replaceState(null, '', location.pathname + location.search);
     if (p.get('state') !== expect) { this.error = '로그인 확인값이 맞지 않습니다. 다시 시도해 주세요.'; return; }
     if (p.get('access_token')) {
-      localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: p.get('access_token'), exp: Date.now() + (Number(p.get('expires_in')) - 60) * 1000 }));
+      localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: p.get('access_token'), exp: Date.now() + (Number(p.get('expires_in')) - 60) * 1000, at: Date.now() }));
     } else {
       const err = p.get('error');
       this.error = err === 'interaction_required' || err === 'login_required' || err === 'consent_required' ? '' : 'Google 로그인을 완료하지 못했습니다: ' + err;
@@ -41,6 +41,8 @@ export const auth = {
     const s = saved();
     return !!(s && s.exp > Date.now());
   },
+  // True right after an interactive Google sign-in (used to confirm a password reset).
+  freshSignIn(ms = 5 * 60 * 1000) { const s = saved(); return !!(s && s.at && Date.now() - s.at < ms); },
   everSignedIn() { return localStorage.getItem('myaide.signedIn') === '1'; },
   async token() {
     if (native.available) {
@@ -53,7 +55,7 @@ export const auth = {
     throw Object.assign(new Error('Google 다시 연결이 필요합니다.'), { auth: true });
   },
   // Leaves the page in the browser flow. Local data is safe in IndexedDB.
-  async signIn({ silent = false } = {}) {
+  async signIn({ silent = false, chooseAccount = false } = {}) {
     if (native.available) {
       const r = await native.call('auth.token', { interactive: true });
       if (!r || !r.token) throw new Error('Google 로그인을 완료하지 못했습니다.');
@@ -70,6 +72,7 @@ export const auth = {
       include_granted_scopes: 'true', state
     });
     if (silent) q.set('prompt', 'none');
+    else if (chooseAccount) q.set('prompt', 'select_account');
     location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + q);
     await new Promise(() => {});
   },

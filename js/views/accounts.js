@@ -26,13 +26,13 @@ export async function mount(root) {
     const err = h('p', { class: 'error' });
     head.replaceChildren(h('h1', null, '계정정보'));
     body.replaceChildren(h('div', { class: 'gate-card', style: { maxWidth: '460px' } },
-      h('h2', { style: { margin: 0 } }, '계정 금고 만들기'),
-      h('p', { class: 'muted', style: { margin: 0 } }, '아이디와 비밀번호는 이 금고 암호로 암호화된 뒤 저장됩니다. Google Drive에도 암호화된 내용만 올라갑니다. 금고 암호를 잊으면 저장한 계정정보를 되살릴 수 없습니다.'),
-      h('label', { class: 'field' }, '금고 암호 (8자 이상)', pw), h('label', { class: 'field' }, '한 번 더', pw2), err,
+      h('h2', { style: { margin: 0 } }, '비밀번호 만들기'),
+      h('p', { class: 'muted', style: { margin: 0 } }, '계정정보는 MY AIDE 비밀번호로 암호화된 뒤 저장됩니다.'),
+      h('label', { class: 'field' }, '비밀번호 (6자 이상)', pw), h('label', { class: 'field' }, '한 번 더', pw2), err,
       h('button', { class: 'btn primary', onclick: async () => {
         if (pw.value !== pw2.value) { err.textContent = '두 암호가 다릅니다.'; return; }
         try { await vault.create(pw.value); draw(); } catch (e) { err.textContent = e.message; }
-      } }, '금고 만들기')));
+      } }, '비밀번호 만들기')));
     pw.focus();
   }
 
@@ -43,10 +43,10 @@ export async function mount(root) {
     pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     head.replaceChildren(h('h1', null, '계정정보'));
     body.replaceChildren(h('div', { class: 'gate-card', style: { maxWidth: '420px' } },
-      h('h2', { style: { margin: 0 } }, '금고가 잠겨 있습니다'),
-      h('label', { class: 'field' }, '금고 암호', pw), err,
+      h('h2', { style: { margin: 0 } }, '잠겨 있습니다'),
+      h('label', { class: 'field' }, 'MY AIDE 비밀번호', pw), err,
       h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: go }, '열기')),
-      h('p', { class: 'hint' }, '암호를 잊었다면 설정 › 금고 암호에서 초기화할 수 있습니다. 초기화하면 저장한 계정정보는 지워집니다.')));
+      h('p', { class: 'hint' }, '비밀번호를 잊었다면 잠금 후 로그인 화면의 ‘비밀번호를 잊었어요’를 누르세요.')));
     pw.focus();
   }
 
@@ -86,7 +86,8 @@ export async function mount(root) {
         try { await native.call('accounts.arm', { user: a.user || '', password: a.password || '' }); armedId = a.id; toast('자동 입력 준비 · 로그인 칸 클릭 후 Ctrl+Shift+F7 / F8'); drawTiles(); setTimeout(() => { if (armedId === a.id) { armedId = null; drawTiles(); } }, 120000); }
         catch (e) { toast(e.message, 'err'); }
       } }, '자동 입력') : null,
-      h('button', { class: 'btn small ghost', onclick: () => edit(a) }, '편집')));
+      h('button', { class: 'btn small ghost', onclick: () => edit(a) }, '편집'),
+      h('button', { class: 'btn small ghost danger', onclick: async () => { if (await confirmBox(`‘${a.name || '이름 없음'}’ 계정을 삭제할까요? 저장한 아이디·비밀번호가 모든 기기에서 지워집니다.`, '삭제', true)) { await db.remove('accounts', a.id); toast('삭제했습니다'); } } }, '삭제')));
 
   const clearLater = pw => setTimeout(async () => {
     try { if (await navigator.clipboard.readText() === pw) await navigator.clipboard.writeText(''); } catch {}

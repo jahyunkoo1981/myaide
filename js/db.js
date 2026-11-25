@@ -53,7 +53,15 @@ export async function all(col) {
 export async function rawAll() { return tx('records', 'readonly', s => req2p(s.getAll())); }
 export async function dirtyRecords() { return tx('records', 'readonly', s => req2p(s.index('dirty').getAll(1))); }
 
-function emit(col, id) { events.dispatchEvent(new CustomEvent('change', { detail: { col, id } })); }
+// Other windows of the same app (desktop widgets, other browser tabs) hear about changes too.
+const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('myaide-db') : null;
+if (bc) bc.onmessage = e => {
+  const m = e.data || {};
+  if (m.t === 'change') events.dispatchEvent(new CustomEvent('change', { detail: { col: m.col, id: m.id, remote: true } }));
+  if (m.t === 'dirty') events.dispatchEvent(new Event('dirty'));
+};
+function emit(col, id) { events.dispatchEvent(new CustomEvent('change', { detail: { col, id } })); bc?.postMessage({ t: 'change', col, id }); }
+function dirtied() { events.dispatchEvent(new Event('dirty')); bc?.postMessage({ t: 'dirty' }); }
 
 export async function put(col, id, data) {
   const key = col + '/' + id;
@@ -63,7 +71,7 @@ export async function put(col, id, data) {
     s.put({ ...(old || { key, col, id, base: 0 }), data, updatedAt: now, deleted: false, dirty: true, dirtyFlag: 1 });
   });
   emit(col, id);
-  events.dispatchEvent(new Event('dirty'));
+  dirtied();
 }
 
 export async function remove(col, id) {
@@ -74,7 +82,7 @@ export async function remove(col, id) {
     s.put({ ...old, data: null, deleted: true, updatedAt: Math.max(Date.now(), old.updatedAt + 1), dirty: true, dirtyFlag: 1 });
   });
   emit(col, id);
-  events.dispatchEvent(new Event('dirty'));
+  dirtied();
 }
 
 // Used by sync only: write a record exactly as given (no timestamp bump).
@@ -101,7 +109,16 @@ export async function markClean(key, uploadedAt, fileId) {
 // ---------- blobs (audio, large files) ----------
 export async function putBlob(id, blob, meta = {}) {
   await tx('blobs', 'readwrite', s => s.put({ id, blob, type: blob.type, uploaded: false, ...meta }));
-  events.dispatchEvent(new Event('dirty'));
+  if (!meta.uploaded) dirtied();
+}
+// Picture previews kept on this device only (사진·동영상); can be cleared at any time.
+export async function cacheSize() {
+  const rows = await tx('blobs', 'readonly', s => req2p(s.getAll()));
+  return rows.filter(r => r.cache).reduce((n, r) => n + (r.blob?.size || 0), 0);
+}
+export async function clearCache() {
+  const rows = await tx('blobs', 'readonly', s => req2p(s.getAll()));
+  await tx('blobs', 'readwrite', s => rows.filter(r => r.cache).forEach(r => s.delete(r.id)));
 }
 export async function getBlobRow(id) { return tx('blobs', 'readonly', s => req2p(s.get(id))); }
 export async function pendingBlobs() {

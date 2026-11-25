@@ -1,4 +1,4 @@
-import { h, uid, today, debounce, confirmBox, toast, download, fmtTime } from '../util.js';
+import { h, uid, today, ymd, WEEK, debounce, confirmBox, toast, download, fmtTime } from '../util.js';
 import * as db from '../db.js';
 import * as sync from '../sync.js';
 import { chat, transcribe } from '../openai.js';
@@ -15,23 +15,45 @@ export async function mount(root, ctx) {
   let items = [], openId = null, current = null, dirty = false;
   let rec = null;
   const list = h('div', { class: 'list' });
+  // Month calendar: days with meetings are tinted and show how many; pick a day to filter the list.
+  let calMonth = today().slice(0, 7), dayFilter = null;
+  const cal = h('div', { class: 'mcal' });
+  const drawCal = () => {
+    const [y, m] = calMonth.split('-').map(Number);
+    const first = new Date(y, m - 1, 1), start = new Date(first); start.setDate(1 - first.getDay());
+    const counts = new Map(); items.forEach(i => { if (i.date) counts.set(i.date, (counts.get(i.date) || 0) + 1); });
+    const shift = d => { const t = new Date(y, m - 1 + d, 1); calMonth = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`; drawCal(); };
+    const cells = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      const key = ymd(d), n = counts.get(key) || 0;
+      if (i >= 35 && d.getMonth() !== m - 1) break;
+      cells.push(h('button', { type: 'button', class: 'd' + (d.getMonth() !== m - 1 ? ' out' : '') + (n ? ' has' : '') + (key === today() ? ' today' : '') + (key === dayFilter ? ' sel' : ''),
+        title: n ? `${key} 회의 ${n}건` : key, onclick: () => { dayFilter = dayFilter === key ? null : key; drawCal(); drawList(); } }, d.getDate(), n ? h('b', null, n) : null));
+    }
+    const monthCount = items.filter(i => (i.date || '').startsWith(calMonth)).length;
+    cal.replaceChildren(
+      h('div', { class: 'mh' }, h('button', { class: 'btn small ghost icon-btn', onclick: () => shift(-1), 'aria-label': '이전 달' }, '‹'), `${y}년 ${m}월`, h('button', { class: 'btn small ghost icon-btn', onclick: () => shift(1), 'aria-label': '다음 달' }, '›')),
+      h('div', { class: 'grid' }, ...WEEK.map(w => h('div', { class: 'w' }, w)), ...cells),
+      h('div', { class: 'foot' }, h('span', null, `이번 달 회의 ${monthCount}건`), dayFilter ? h('button', { class: 'btn small ghost', style: { minHeight: '22px', padding: '0 6px' }, onclick: () => { dayFilter = null; drawCal(); drawList(); } }, dayFilter.slice(5) + ' 보기 해제') : h('span', null, '날짜를 누르면 그날만')));
+  };
   const pane = h('section', { class: 'editor-pane' });
   const split = h('div', { class: 'split' },
     h('aside', { class: 'list-pane' },
       h('div', { class: 'list-tools' }, h('div', { class: 'row' }, h('strong', { class: 'grow', style: { fontSize: '17px' } }, '회의록'),
         h('button', { class: 'btn small primary', onclick: create }, '+ 새 회의록'))),
-      list),
+      cal, list),
     pane);
   root.append(split);
 
   const load = async () => { items = (await db.all('meetings')).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.updatedAt - a.updatedAt); };
-  const drawList = () => list.replaceChildren(...(items.length ? items.map(m => h('button', { class: 'list-item', 'aria-selected': String(m.id === openId), onclick: () => ctx.go('meetings', m.id) },
+  const drawList = () => { drawCal(); const shown = dayFilter ? items.filter(m => m.date === dayFilter) : items; list.replaceChildren(...(shown.length ? shown.map(m => h('button', { class: 'list-item', 'aria-selected': String(m.id === openId), onclick: () => ctx.go('meetings', m.id) },
     h('div', { class: 'd' }, m.date || ''), h('div', { class: 't' }, m.title || '제목 없는 회의'), h('div', { class: 's' }, (m.summary || m.transcript || '').slice(0, 60) || ' ')))
-    : [h('div', { class: 'list-empty' }, '회의를 녹음하면 녹취록과 요약을 만들 수 있습니다.')]));
+    : [h('div', { class: 'list-empty' }, dayFilter ? '이 날은 회의록이 없습니다.' : '회의를 녹음하면 녹취록과 요약을 만들 수 있습니다.')])); };
 
   async function create() {
     const id = uid();
-    await db.put('meetings', id, { title: '', date: today(), transcript: '', summary: '', audio: [] });
+    await db.put('meetings', id, { title: '', date: dayFilter || today(), transcript: '', summary: '', audio: [] });
     ctx.go('meetings', id);
   }
 
@@ -49,6 +71,7 @@ export async function mount(root, ctx) {
     const data = await db.get('meetings', id);
     if (!data) { pane.replaceChildren(h('div', { class: 'pad empty' }, h('b', null, '찾을 수 없습니다'))); return; }
     current = { audio: [], ...data };
+    if (current.date) calMonth = current.date.slice(0, 7);
     const title = h('input', { class: 'doc-title', value: current.title, placeholder: '회의 제목', oninput: e => { current.title = e.target.value; touch(); } });
     const date = h('input', { type: 'date', value: current.date, onchange: e => { current.date = e.target.value; touch(); } });
     const transcript = h('textarea', { rows: 10, placeholder: '녹취록 — 직접 적거나 ‘녹취록 만들기’로 채웁니다.', oninput: e => { current.transcript = e.target.value; touch(); } }, current.transcript || '');

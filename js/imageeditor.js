@@ -59,13 +59,56 @@ export async function openImageEditor(src, { title = '캡처 편집', actions } 
   };
   const pos = e => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) * img.width / r.width, (e.clientY - r.top) * img.height / r.height]; };
 
-  canvas.addEventListener('pointerdown', async e => {
-    const [x, y] = pos(e);
-    if (tool === 'text') {
-      const text = await askText();
-      if (text) { shapes.push({ kind: 'text', x, y, text, size: fontSize, color }); render(); }
-      return;
+  // Text goes in where you click: a box opens on the picture, type, Enter to place (Shift+Enter = new line).
+  // Clicking an existing text picks it up for editing.
+  let typing = null;
+  const scale = () => canvas.getBoundingClientRect().width / img.width;
+  const textAt = (x, y) => {
+    const g = ctx; g.save();
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const s = shapes[i]; if (s.kind !== 'text') continue;
+      g.font = `700 ${s.size}px ${getComputedStyle(document.body).fontFamily}`;
+      const lines = s.text.split('\n'); const w = Math.max(...lines.map(l => g.measureText(l).width));
+      if (x >= s.x - 6 && x <= s.x + w + 6 && y >= s.y - 6 && y <= s.y + lines.length * s.size * 1.25 + 6) { g.restore(); return i; }
     }
+    g.restore(); return -1;
+  };
+  const commitTyping = () => {
+    if (!typing) return;
+    const { ta, shape, idx } = typing; typing = null;
+    const text = ta.value.replace(/\s+$/, '');
+    ta.remove();
+    if (idx >= 0) { if (text) shapes[idx] = { ...shape, text }; else shapes.splice(idx, 1); }
+    else if (text) shapes.push({ ...shape, text });
+    render();
+  };
+  const startTyping = (x, y) => {
+    const idx = textAt(x, y);
+    const shape = idx >= 0 ? { ...shapes[idx] } : { kind: 'text', x, y, text: '', size: fontSize, color };
+    if (idx >= 0) { shapes[idx] = { ...shape, text: '' }; render(); }
+    const k = scale();
+    const ta = h('textarea', { class: 'img-type', rows: 1, spellcheck: 'false',
+      style: { left: (canvas.offsetLeft + shape.x * k) + 'px', top: (canvas.offsetTop + shape.y * k) + 'px',
+        fontSize: Math.max(10, shape.size * k) + 'px', color: shape.color,
+        WebkitTextStroke: shape.color.toUpperCase() === '#FFFFFF' ? '0.5px rgba(0,0,0,.5)' : '0' } });
+    ta.value = shape.text;
+    const fit = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.style.width = Math.max(60, Math.min(900, ta.value.split('\n').reduce((m, l) => Math.max(m, l.length), 1) * shape.size * k * 0.95 + 24)) + 'px'; };
+    ta.addEventListener('input', fit);
+    ta.addEventListener('keydown', ev => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); commitTyping(); }
+      if (ev.key === 'Escape') { ev.preventDefault(); ta.value = idx >= 0 ? shape.text : ''; commitTyping(); }
+    });
+    ta.addEventListener('blur', () => setTimeout(commitTyping, 0));
+    canvas.parentElement.append(ta);
+    typing = { ta, shape, idx };
+    fit(); setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
+  };
+
+  canvas.addEventListener('pointerdown', e => {
+    const [x, y] = pos(e);
+    if (typing) { commitTyping(); if (tool === 'text') return; }
+    if (tool === 'text') { e.preventDefault(); startTyping(x, y); return; }
     canvas.setPointerCapture(e.pointerId);
     live = tool === 'pen' ? { kind: 'pen', p: [[x, y]], color, width: Math.max(3, fontSize / 8) }
       : { kind: tool, x0: x, y0: y, x1: x, y1: y, color, width: Math.max(3, fontSize / 8) };
@@ -83,13 +126,6 @@ export async function openImageEditor(src, { title = '캡처 편집', actions } 
     live = null; render();
   });
 
-  const askText = () => {
-    const ta = h('textarea', { rows: 3, style: { fontSize: '16px' } });
-    return dialog({ title: '글자 넣기', body: [ta, h('p', { class: 'hint' }, `크기 ${fontSize} · 줄바꿈은 Enter`)],
-      actions: [{ label: '취소', value: '' }, { label: '넣기', kind: 'primary', run: () => {}, value: 'ok' }],
-      onOpen: () => ta.focus() }).then(v => v === 'ok' ? ta.value.trim() : '');
-  };
-
   const toolSeg = h('div', { class: 'seg' });
   const TOOLS = [['text', '글자'], ['pen', '펜'], ['arrow', '화살표'], ['box', '사각형'], ['hide', '가리기'], ['crop', '자르기']];
   const setTool = t => { tool = t; [...toolSeg.children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === t))); };
@@ -101,8 +137,10 @@ export async function openImageEditor(src, { title = '캡처 편집', actions } 
   const sizeList = h('datalist', { id: 'myaide-sizes' }, FONT_SIZES.map(s => h('option', { value: s })));
   const swatches = COLORS.map(([name, c]) => h('button', { type: 'button', class: 'swatch', title: name, 'aria-label': name, style: { background: c }, 'aria-pressed': String(c === color),
     onclick: e => { color = c; swatches.forEach(s => s.setAttribute('aria-pressed', String(s === e.currentTarget))); } }));
+  const exportGuard = () => commitTyping();
 
   const exportUrl = () => {
+    commitTyping();
     const r = crop ? norm(crop) : { x: 0, y: 0, w: img.width, h: img.height };
     const full = document.createElement('canvas'); full.width = img.width; full.height = img.height;
     render(full.getContext('2d'), true);
@@ -121,7 +159,8 @@ export async function openImageEditor(src, { title = '캡처 편집', actions } 
         h('button', { class: 'btn small ghost', type: 'button', title: '지금 크기와 색을 다음 캡처의 기본값으로', onclick: async () => {
           await savePrefs({ capture: { ...prefs().capture, fontSize, color } }); toast('기본 글자 크기와 색을 저장했습니다');
         } }, '기본값으로')),
-      h('div', { class: 'stage-wrap' }, canvas)),
+      h('div', { class: 'stage-wrap' }, h('div', { class: 'stage-inner' }, canvas)),
+      h('p', { class: 'hint', style: { margin: 0 } }, '글자: 그림을 클릭하고 바로 입력 → Enter로 넣기 (Shift+Enter 줄바꿈, 이미 넣은 글자를 클릭하면 고치기)')),
     actions: (actions || [{ label: '취소', value: null }, { label: '완료', kind: 'primary', value: 'done' }]).map(a => ({ ...a, run: a.value ? () => { lastUrl = exportUrl(); } : undefined }))
   });
   return result ? { action: result, dataUrl: lastUrl } : null;

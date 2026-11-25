@@ -115,16 +115,33 @@ export async function mount(root) {
     toast('예산을 저장했습니다');
   }
 
+  // 항목 관리: each item has its own delete button; add new ones at the bottom of each list.
   async function editCats() {
     const cats = await categories();
-    const inc = h('textarea', { rows: 6 }, cats.income.join('\n'));
-    const exp = h('textarea', { rows: 12 }, cats.expense.join('\n'));
-    const r = await dialog({ title: '수입·지출 항목', body: [h('p', { class: 'hint' }, '한 줄에 하나씩 적습니다. 이름을 바꿔도 이미 기록한 내역의 항목명은 그대로 남습니다.'),
-      h('div', { class: 'grid2' }, h('label', { class: 'field' }, '수입 항목', inc), h('label', { class: 'field' }, '지출 항목', exp))],
-      actions: [{ label: '기본값으로', run: () => { inc.value = DEFAULT_CATS.income.join('\n'); exp.value = DEFAULT_CATS.expense.join('\n'); return false; } }, { label: '취소' }, { label: '저장', kind: 'primary', value: 'ok' }] });
+    const work = { income: [...cats.income], expense: [...cats.expense] };
+    const all = await db.all('ledger');
+    const used = (kind, name) => all.filter(e => e.kind === (kind === 'income' ? 'in' : 'out') && e.cat === name).length;
+    const col = kind => {
+      const box = h('div', { class: 'cat-list' });
+      const input = h('input', { type: 'text', placeholder: kind === 'income' ? '새 수입 항목' : '새 지출 항목' });
+      const add = () => { const v = input.value.trim(); if (!v) return; if (!work[kind].includes(v)) work[kind].push(v); input.value = ''; draw(); input.focus(); };
+      input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } });
+      const draw = () => box.replaceChildren(...work[kind].map((name, i) => {
+        const n = used(kind, name);
+        return h('div', { class: 'cat-row' },
+          h('span', { class: 'grow' }, name, n ? h('span', { class: 'muted', style: { fontSize: '12px', marginLeft: '6px' } }, `기록 ${n}건`) : null),
+          h('button', { type: 'button', class: 'btn small ghost', title: '위로', disabled: i === 0, onclick: () => { [work[kind][i - 1], work[kind][i]] = [work[kind][i], work[kind][i - 1]]; draw(); } }, '↑'),
+          h('button', { type: 'button', class: 'btn small ghost danger', title: name + ' 삭제', onclick: () => { work[kind].splice(i, 1); draw(); } }, '삭제'));
+      }));
+      draw();
+      return h('div', { class: 'field' }, h('b', null, kind === 'income' ? '수입 항목' : '지출 항목'), box, h('div', { class: 'row', style: { flexWrap: 'nowrap' } }, input, h('button', { type: 'button', class: 'btn small', onclick: add }, '추가')));
+    };
+    const r = await dialog({ title: '수입·지출 항목 관리', wide: true,
+      body: [h('p', { class: 'hint' }, '항목을 지워도 이미 기록한 내역은 그대로 남습니다(그 내역의 항목 이름만 목록에서 빠짐).'), h('div', { class: 'grid2' }, col('income'), col('expense'))],
+      actions: [{ label: '기본값으로', run: close => { work.income = [...DEFAULT_CATS.income]; work.expense = [...DEFAULT_CATS.expense]; close('reset'); return false; } }, { label: '취소' }, { label: '저장', kind: 'primary', value: 'ok' }] });
+    if (r === 'reset') { await db.put('ledgerCats', 'list', { income: [...DEFAULT_CATS.income], expense: [...DEFAULT_CATS.expense] }); toast('기본 항목으로 되돌렸습니다'); return; }
     if (r !== 'ok') return;
-    const lines = t => [...new Set(t.value.split('\n').map(s => s.trim()).filter(Boolean))];
-    await db.put('ledgerCats', 'list', { income: lines(inc).length ? lines(inc) : DEFAULT_CATS.income, expense: lines(exp).length ? lines(exp) : DEFAULT_CATS.expense });
+    await db.put('ledgerCats', 'list', { income: work.income.length ? work.income : DEFAULT_CATS.income, expense: work.expense.length ? work.expense : DEFAULT_CATS.expense });
     toast('항목을 저장했습니다');
   }
 

@@ -12,7 +12,7 @@ const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 
 async function derive(password, salt) {
   const base = await crypto.subtle.importKey('raw', te.encode(password), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: ITER, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: ITER, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
 }
 async function encWith(k, value) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -27,13 +27,11 @@ async function decWith(k, box) {
 export async function exists() { return !!(await db.get('vault', 'main')); }
 export function isOpen() { return !!key; }
 
-function touch() {
-  clearTimeout(lockTimer);
-  lockTimer = setTimeout(lock, 15 * 60 * 1000); // auto-lock after 15 minutes without vault use
-}
+// The vault stays open for the signed-in session; main.js locks it on 잠금 or after long inactivity.
+function touch() { clearTimeout(lockTimer); }
 
 export async function create(password) {
-  if (!password || password.length < 8) throw new Error('금고 암호는 8자 이상으로 정해 주세요.');
+  if (!password || password.length < 6) throw new Error('비밀번호는 6자 이상으로 정해 주세요.');
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const k = await derive(password, salt);
   await db.put('vault', 'main', { salt: b64(salt), check: await encWith(k, 'myaide-ok'), iter: ITER });
@@ -43,23 +41,30 @@ export async function create(password) {
 
 export async function unlock(password) {
   const meta = await db.get('vault', 'main');
-  if (!meta) throw new Error('금고가 아직 없습니다.');
+  if (!meta) throw new Error('비밀번호가 아직 없습니다.');
   const k = await derive(password, unb64(meta.salt));
   try { if (await decWith(k, meta.check) !== 'myaide-ok') throw 0; }
-  catch { throw new Error('금고 암호가 맞지 않습니다.'); }
+  catch { throw new Error('비밀번호가 맞지 않습니다.'); }
   key = k; touch();
+  vaultEvents.dispatchEvent(new Event('change'));
+}
+
+// Desktop widgets run in their own windows: the main window hands them the open key through the app (memory only).
+export async function exportSession() { return key ? b64(await crypto.subtle.exportKey('raw', key)) : null; }
+export async function importSession(raw) {
+  key = raw ? await crypto.subtle.importKey('raw', unb64(raw), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']) : null;
   vaultEvents.dispatchEvent(new Event('change'));
 }
 
 export function lock() { key = null; clearTimeout(lockTimer); vaultEvents.dispatchEvent(new Event('change')); }
 
 export async function seal(value) {
-  if (!key) throw new Error('금고가 잠겨 있습니다.');
+  if (!key) throw new Error('잠겨 있습니다. 다시 로그인해 주세요.');
   touch();
   return encWith(key, value);
 }
 export async function open(box) {
-  if (!key) throw new Error('금고가 잠겨 있습니다.');
+  if (!key) throw new Error('잠겨 있습니다. 다시 로그인해 주세요.');
   touch();
   return decWith(key, box);
 }

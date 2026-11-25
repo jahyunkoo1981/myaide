@@ -3,8 +3,8 @@ import { h, dialog, plain, fmtTime, toast } from './util.js';
 import * as sync from './sync.js';
 
 const NAMES = {
-  journal: '업무일지', notes: '업무메모', aimd: 'AIMD', knowledge: '지식노트', schedule: '일정', milestones: '마일스톤',
-  ledger: '가계부', ledgerCats: '가계부 항목', accounts: '계정정보', meetings: '회의록', settings: '설정', vault: '금고', secrets: '금고 비밀값', chats: 'AIDE 대화'
+  journal: '업무일지', notes: '업무메모', aimd: 'AIMD', knowledge: '지식노트', schedule: '일정', milestones: '마일스톤', mindmaps: '마인드맵',
+  ledger: '가계부', ledgerCats: '가계부 항목', accounts: '계정정보', meetings: '회의록', settings: '설정', vault: '비밀번호', secrets: 'API 키', chats: 'AIDE 대화'
 };
 const DOCS = new Set(['journal', 'notes', 'aimd', 'knowledge', 'meetings']);
 

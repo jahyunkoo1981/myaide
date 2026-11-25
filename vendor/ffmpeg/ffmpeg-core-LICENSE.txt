@@ -1,0 +1,1 @@
+@ffmpeg/core 0.12.10 — FFmpeg compiled to WebAssembly. License: GPL-2.0-or-later. Source: https://github.com/ffmpegwasm/ffmpeg.wasm

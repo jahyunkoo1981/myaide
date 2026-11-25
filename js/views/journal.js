@@ -1,4 +1,4 @@
-import { h, today, parseYmd, ymd, WEEK, plain, debounce, pad2 } from '../util.js';
+import { h, today, parseYmd, ymd, WEEK, plain, debounce, pad2, confirmBox, toast } from '../util.js';
 import * as db from '../db.js';
 import { richEditor } from '../editor.js';
 
@@ -88,10 +88,16 @@ export async function mount(root, ctx) {
         h('span', { class: 'stamp-nav' },
           h('button', { class: 'btn small ghost back-btn', onclick: () => split.classList.remove('has-open') }, '‹ 날짜 목록'),
           h('span', { class: 'grow' }), state,
+          h('button', { class: 'btn small ghost danger', title: '이 날 일지 삭제', onclick: async () => {
+            const has = (await db.get('journal', d)) || plain(ed.get()) || ed.get().includes('<img');
+            if (!has) { toast('지울 일지가 없습니다'); return; }
+            if (!await confirmBox(`${dd.getMonth() + 1}월 ${dd.getDate()}일 업무일지를 삭제할까요?`, '삭제', true)) return;
+            save.cancel(); dirty = false; await db.remove('journal', d); ed.set(''); state.textContent = '삭제했습니다'; toast('삭제했습니다');
+          } }, '삭제'),
           h('button', { class: 'btn small ghost', onclick: () => { const p = new Date(dd); p.setDate(p.getDate() - 1); ctx.go('journal', ymd(p)); }, 'aria-label': '전날' }, '‹ 전날'),
           h('button', { class: 'btn small ghost', onclick: () => { const p = new Date(dd); p.setDate(p.getDate() + 1); ctx.go('journal', ymd(p)); }, 'aria-label': '다음날' }, '다음날 ›'))),
       h('div', { style: { height: '12px' } }),
-      ed.toolbar, h('div', { class: 'doc-body' }, ed.body));
+      ed.toolbar, h('div', { class: 'doc-wrap' }, h('div', { class: 'doc-body' }, ed.body), ed.toc));
     state.textContent = e ? '' : '새 일지';
     drawCal(); drawList();
   };
