@@ -72,6 +72,7 @@ const starter = () => {
 export function createFlowEditor(initial, { onChange, name = '프로세스' } = {}) {
   let flow = JSON.parse(JSON.stringify(initial && initial.nodes ? initial : blank()));
   let sel = new Set(), selEdge = null, selLabel = null, view = { x: 40, y: 30, k: 1 };
+  let lastPtr = 'mouse';   // 'touch' on phones/tablets
   let undo = [], redo = [];
   let lastSnap = JSON.stringify(flow);
   const snapshot = () => { const s = JSON.stringify(flow); if (s !== lastSnap) { undo.push(lastSnap); if (undo.length > 80) undo.shift(); redo = []; lastSnap = s; } };
@@ -340,9 +341,11 @@ export function createFlowEditor(initial, { onChange, name = '프로세스' } = 
       if (sel.size === 1) for (const [hx, hy, c] of [[n.x, n.y, 'nw'], [n.x + n.w, n.y, 'ne'], [n.x, n.y + n.h, 'sw'], [n.x + n.w, n.y + n.h, 'se']])
         gUi.append(el('rect', { x: hx - 5 / k, y: hy - 5 / k, width: 10 / k, height: 10 / k, rx: 2 / k, fill: '#fff', stroke: '#6B74D6', 'stroke-width': 1.5 / k, class: 'fl-handle', 'data-handle': c, style: `cursor:${c}-resize` }));
     }
-    if (hoverId && byId(hoverId) && byId(hoverId).type !== 'lane') {
-      const n = byId(hoverId);
-      for (const p of ['top', 'right', 'bottom', 'left']) { const pt = portPt(n, p); gUi.append(el('circle', { cx: pt.x, cy: pt.y, r: 5.5 / k, fill: '#fff', stroke: '#6B74D6', 'stroke-width': 2 / k, class: 'fl-port', 'data-port': p, 'data-node': n.id })); }
+    // phones have no hover: the selected shape shows its (bigger) connection dots instead
+    const portNode = hoverId && byId(hoverId) ? hoverId : (lastPtr === 'touch' && sel.size === 1 && !typing ? [...sel][0] : null);
+    if (portNode && byId(portNode) && byId(portNode).type !== 'lane') {
+      const n = byId(portNode), pr = (lastPtr === 'touch' ? 10 : 5.5) / k;
+      for (const p of ['top', 'right', 'bottom', 'left']) { const pt = portPt(n, p); gUi.append(el('circle', { cx: pt.x, cy: pt.y, r: pr, fill: '#fff', stroke: '#6B74D6', 'stroke-width': 2 / k, class: 'fl-port', 'data-port': p, 'data-node': n.id })); }
     }
     if (guides.length) for (const gd of guides) gUi.append(el('line', { ...gd, stroke: '#D9889C', 'stroke-width': 1 / k, 'stroke-dasharray': `${4 / k} ${3 / k}` }));
     if (wire) gUi.append(el('path', { d: `M${wire.x1},${wire.y1} L${wire.x2},${wire.y2}`, stroke: '#6B74D6', 'stroke-width': 1.8 / k, 'stroke-dasharray': `${5 / k} ${4 / k}`, 'marker-end': 'url(#fl-arrow-s)' }));
@@ -364,9 +367,15 @@ export function createFlowEditor(initial, { onChange, name = '프로세스' } = 
     const n = over || (nodeAt(p, true)?.id ?? null);
     if (n !== hoverId) { hoverId = n; draw(); }
   });
+  // Phones: no double-click and the keyboard only opens when a text box is focused during the tap itself,
+  // so double-taps are detected here and editing starts inside the pointerup handler.
+  let down = null, lastTap = null;
+  const tapId = t => { const lg = t.closest?.('.fl-label'); if (lg) return 'e:' + lg.dataset.label; const eg = t.closest?.('.fl-edge'); if (eg) return 'e:' + eg.dataset.edge; const ng = t.closest?.('.fl-node'); return ng ? 'n:' + ng.dataset.id : null; };
   svg.addEventListener('pointerdown', e => {
     if (!flow) return;
-    svg.focus({ preventScroll: true });
+    lastPtr = e.pointerType || 'mouse';
+    down = { x: e.clientX, y: e.clientY, id: tapId(e.target) };
+    if (lastPtr !== 'touch') svg.focus({ preventScroll: true });
     commitText();
     const p = toWorld(e), t = e.target;
     svg.setPointerCapture(e.pointerId);
@@ -454,7 +463,19 @@ export function createFlowEditor(initial, { onChange, name = '프로세스' } = 
     }
   }
   svg.addEventListener('pointerup', e => {
-    setTimeout(focusKeys, 0);
+    if (e.pointerType === 'touch') {
+      const still = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12;
+      if (still && down.id) {
+        if (lastTap && lastTap.id === down.id && Date.now() - lastTap.t < 450) {
+          lastTap = null; const id = down.id.slice(2);
+          if (drag) { drag = null; guides = []; draw(); }
+          if (down.id[0] === 'n') { const n = byId(id); if (n) editText(n); }
+          else editEdgeLabel(flow.edges.find(x => x.id === id));
+          return;
+        }
+        lastTap = { id: down.id, t: Date.now() };
+      } else lastTap = null;
+    } else setTimeout(focusKeys, 0);
     if (!drag) return;
     const p = toWorld(e), d = drag; drag = null; svg.classList.remove('panning');
     if (d.kind === 'end') {
@@ -513,7 +534,7 @@ export function createFlowEditor(initial, { onChange, name = '프로세스' } = 
     const ta = adopt || h('textarea', { spellcheck: 'false' });
     if (adopt) newCatcher();
     ta.className = 'fl-type';
-    Object.assign(ta.style, { left: (r.left - hr.left + view.x + n.x * view.k) + 'px', top: (r.top - hr.top + view.y + n.y * view.k) + 'px', width: n.w * view.k + 'px', height: n.h * view.k + 'px', fontSize: (n.fontSize || 14) * view.k + 'px', fontWeight: n.bold ? 700 : 560, paddingTop: Math.max(4, (n.h * view.k - (n.fontSize || 14) * view.k * 1.35) / 2) + 'px' });
+    Object.assign(ta.style, { left: (r.left - hr.left + view.x + n.x * view.k) + 'px', top: (r.top - hr.top + view.y + n.y * view.k) + 'px', width: n.w * view.k + 'px', height: n.h * view.k + 'px', fontSize: (lastPtr === 'touch' ? Math.max(16, (n.fontSize || 14) * view.k) : (n.fontSize || 14) * view.k) + 'px', fontWeight: n.bold ? 700 : 560, paddingTop: Math.max(4, (n.h * view.k - (n.fontSize || 14) * view.k * 1.35) / 2) + 'px' });
     if (!adopt) ta.value = n.text || '';
     ta.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); commitText(); } if (e.key === 'Escape') { ta.value = n.text || ''; commitText(); } });
     ta.addEventListener('blur', () => setTimeout(commitText, 0));
@@ -547,7 +568,10 @@ export function createFlowEditor(initial, { onChange, name = '프로세스' } = 
     labelEditor = done;
     if (!adopt) holder.append(inp);
     if (adopt) return;
-    if (initial != null) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); } else setTimeout(() => { inp.focus(); inp.select(); }, 0);
+    if (lastPtr === 'touch') inp.style.fontSize = '16px';
+    if (initial != null) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+    else if (lastPtr === 'touch') { inp.focus(); inp.select(); }   // must happen inside the tap for the keyboard to open
+    else setTimeout(() => { inp.focus(); inp.select(); }, 0);
   }
 
   // ---------- keyboard ----------
@@ -577,7 +601,7 @@ export function createFlowEditor(initial, { onChange, name = '프로세스' } = 
   }
   newCatcher();
   function focusKeys() {
-    if (!flow || typing) return;
+    if (!flow || typing || lastPtr === 'touch') return;
     if (sel.size === 1 || selLabel || selEdge) { catcher.value = ''; catcher.focus({ preventScroll: true }); }
     else svg.focus({ preventScroll: true });
   }
@@ -665,8 +689,22 @@ export function createFlowEditor(initial, { onChange, name = '프로세스' } = 
     }));
 
   const panel = h('div', { class: 'fl-panel' });
+  const mbar = h('div', { class: 'fl-mbar', hidden: true });
+  const mb = (label, fn, cls) => h('button', { type: 'button', class: 'btn small' + (cls ? ' ' + cls : ''), onclick: fn }, label);
+  function drawMbar() {
+    const nodes = [...sel].map(byId).filter(Boolean);
+    const edge = (selEdge || selLabel) && flow.edges.find(x => x.id === (selEdge || selLabel));
+    let kids = [];
+    if (!typing && nodes.length === 1) kids = [mb('✎ 글자', () => editText(nodes[0]), 'primary'), mb('복제', () => paste(copySel())), mb('삭제', removeSel, 'ghost danger')];
+    else if (!typing && nodes.length > 1) kids = [mb('복제', () => paste(copySel())), mb('삭제', removeSel, 'ghost danger')];
+    else if (!typing && edge) kids = [mb(edge.label ? '✎ 글자' : '✎ 글자 넣기', () => editEdgeLabel(edge), 'primary'),
+      edge.label ? mb('글자 지우기', () => { edge.label = ''; delete edge.lx; delete edge.ly; selLabel = null; commit(); }) : null,
+      mb('선 삭제', () => { flow.edges = flow.edges.filter(x => x.id !== edge.id); selEdge = selLabel = null; commit(); }, 'ghost danger')].filter(Boolean);
+    mbar.hidden = !kids.length; mbar.replaceChildren(...kids);
+  }
   function drawPanel() {
     if (!flow) return;
+    drawMbar();
     const nodes = [...sel].map(byId).filter(Boolean);
     const edgeId = selEdge || selLabel, edge = edgeId && flow.edges.find(x => x.id === edgeId);
     const sec = (title, ...kids) => h('div', { class: 'fl-sec' }, h('div', { class: 'fl-sec-t' }, title), ...kids);
@@ -690,7 +728,7 @@ export function createFlowEditor(initial, { onChange, name = '프로세스' } = 
         sec('사용법',
         h('p', { class: 'fl-tip' }, '왼쪽 도형을 누르거나 끌어다 놓습니다.'),
         h('p', { class: 'fl-tip' }, '도형에 마우스를 올리면 파란 점이 생깁니다. 점을 끌어 다른 도형에 놓으면 연결되고, 빈 곳에 놓으면 새 도형이 이어집니다.'),
-        h('p', { class: 'fl-tip' }, '더블클릭하거나 바로 타자를 치면 글자를 넣습니다. 빈 곳 더블클릭은 새 ‘처리’ 도형.'),
+        h('p', { class: 'fl-tip' }, '더블클릭하거나 바로 타자를 치면 글자를 넣습니다. 빈 곳 더블클릭은 새 ‘처리’ 도형. 폰에서는 도형을 두 번 톡 누르거나 아래 ✎ 글자 버튼.'),
         h('p', { class: 'fl-tip' }, 'Ctrl+Z 되돌리기 · Ctrl+D 복제 · Delete 삭제 · 방향키 이동 · Ctrl+휠 확대 · Space+끌기 화면 이동')));
       return;
     }
@@ -779,7 +817,7 @@ export function createFlowEditor(initial, { onChange, name = '프로세스' } = 
     h('button', { class: 'btn small', onclick: () => exportPng(true) }, '그림 복사'),
     h('button', { class: 'btn small', onclick: () => exportPng(false) }, 'PNG'),
     h('button', { class: 'btn small', onclick: () => { const s = exportSvgText(); download(name + '.svg', new Blob([s.text], { type: 'image/svg+xml' })); } }, 'SVG'));
-  const element = h('div', { class: 'fl-editor' }, tools, h('div', { class: 'fl-body' }, palette, h('div', { class: 'fl-canvas' }, svg, holder), panel));
+  const element = h('div', { class: 'fl-editor' }, tools, h('div', { class: 'fl-body' }, palette, h('div', { class: 'fl-canvas' }, svg, holder, mbar), panel));
   const start = () => { applyView(); draw(); requestAnimationFrame(() => { if (flow.nodes.length) fit(); else { view = { x: 60, y: 40, k: 1 }; applyView(); draw(); } focusKeys(); }); };
   const load = f => { flow = JSON.parse(JSON.stringify(f)); sel = new Set(); selEdge = null; selLabel = null; commit(); requestAnimationFrame(fit); };
   return { element, start, load, isEmpty: () => !flow.nodes.length, get: () => { commitText(); return JSON.parse(JSON.stringify(flow)); }, pngDataUrl, fit, finish: commitText };

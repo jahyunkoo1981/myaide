@@ -5,9 +5,11 @@
 // version history (드라이브), AI helper (OpenAI key from 설정).
 import { h, toast, icon, uid, debounce, confirmBox, promptBox, copyText, escapeHtml } from '../util.js';
 import * as db from '../db.js';
+import { isDark, themeEvents } from '../theme.js';
 import { native } from '../native.js';
 import { renderMarkdown } from '../md.js';
 import { chat } from '../openai.js';
+import { krw, fmtTok } from '../usage.js';
 
 const COL = 'code';
 const BASE = new URL('vendor/monaco/', location.href).href;
@@ -22,6 +24,8 @@ function loadMonaco() {
         const m = window.monaco;
         m.editor.defineTheme('myaide', { base: 'vs', inherit: true, rules: [{ token: 'comment', foreground: '8D92A6', fontStyle: 'italic' }, { token: 'keyword', foreground: '5A4FCF' }, { token: 'string', foreground: '2F8467' }, { token: 'number', foreground: 'C2673A' }],
           colors: { 'editor.background': '#FFFFFF', 'editor.lineHighlightBackground': '#F5F6FC', 'editorLineNumber.foreground': '#B4B8C8', 'editorLineNumber.activeForeground': '#6B74D6', 'editor.selectionBackground': '#DCE0FB', 'editorCursor.foreground': '#6B74D6', 'editorIndentGuide.background1': '#ECEEF5' } });
+        m.editor.defineTheme('myaide-dark', { base: 'vs-dark', inherit: true, rules: [{ token: 'comment', foreground: '7D849B', fontStyle: 'italic' }, { token: 'keyword', foreground: 'A9B0FF' }, { token: 'string', foreground: '7FD3B0' }, { token: 'number', foreground: 'F2B48C' }],
+          colors: { 'editor.background': '#1B1E29', 'editor.lineHighlightBackground': '#232736', 'editorLineNumber.foreground': '#555B72', 'editorLineNumber.activeForeground': '#A9B0FF', 'editor.selectionBackground': '#3A4080', 'editorCursor.foreground': '#A9B0FF', 'editorIndentGuide.background1': '#2A2E3E' } });
         res(m);
       }, rej);
     };
@@ -329,7 +333,7 @@ export async function mount(root, ctx) {
   }
   function ensureEditor() {
     if (editor) return;
-    editor = monaco.editor.create(edHost, { theme: 'myaide', automaticLayout: true, fontSize: 14, fontFamily: '"D2Coding", "Cascadia Code", Consolas, "Pretendard Variable", monospace', minimap: { enabled: innerWidth > 1100 }, wordWrap: 'on', renderWhitespace: 'selection', smoothScrolling: true, scrollBeyondLastLine: false, tabSize: 4, bracketPairColorization: { enabled: true }, stickyScroll: { enabled: true }, unicodeHighlight: { ambiguousCharacters: false } });
+    editor = monaco.editor.create(edHost, { theme: isDark() ? 'myaide-dark' : 'myaide', automaticLayout: true, fontSize: 14, fontFamily: '"D2Coding", "Cascadia Code", Consolas, "Pretendard Variable", monospace', minimap: { enabled: innerWidth > 1100 }, wordWrap: 'on', renderWhitespace: 'selection', smoothScrolling: true, scrollBeyondLastLine: false, tabSize: 4, bracketPairColorization: { enabled: true }, stickyScroll: { enabled: true }, unicodeHighlight: { ambiguousCharacters: false } });
     editor.onDidChangeCursorPosition(drawStatus);
     editor.onDidChangeCursorSelection(() => { if (side === 'ai') drawAiCtx(); });
     const K = monaco.KeyMod, C = monaco.KeyCode;
@@ -427,6 +431,8 @@ export async function mount(root, ctx) {
     if (t && !isDirty(t)) { const rec = await db.get(COL, t.recId); if (rec && rec.content !== t.model.getValue()) { const v = editor && active === t ? editor.saveViewState() : null; t.model.setValue(rec.content || ''); t.saved = t.model.getAlternativeVersionId(); if (v) editor.restoreViewState(v); } }
   };
   db.events.addEventListener('change', onDb);
+  const onTheme = () => { if (monaco) monaco.editor.setTheme(isDark() ? 'myaide-dark' : 'myaide'); };
+  themeEvents.addEventListener('change', onTheme);
 
   // ---------- markdown preview ----------
   function togglePreview() {
@@ -444,7 +450,7 @@ export async function mount(root, ctx) {
   // ---------- diff view (git / 기록 / AI) ----------
   function openDiff(original, modified, lang, title, actions = []) {
     monaco = monaco; if (!monaco) return;
-    if (!diffEd) diffEd = monaco.editor.createDiffEditor(diffHost, { theme: 'myaide', automaticLayout: true, readOnly: true, renderSideBySide: innerWidth > 900, fontSize: 13.5, originalEditable: false, minimap: { enabled: false }, wordWrap: 'on' });
+    if (!diffEd) diffEd = monaco.editor.createDiffEditor(diffHost, { theme: isDark() ? 'myaide-dark' : 'myaide', automaticLayout: true, readOnly: true, renderSideBySide: innerWidth > 900, fontSize: 13.5, originalEditable: false, minimap: { enabled: false }, wordWrap: 'on' });
     const o = monaco.editor.createModel(original, lang), m = monaco.editor.createModel(modified, lang);
     const prev = diffEd.getModel(); diffEd.setModel({ original: o, modified: m }); if (prev) { prev.original.dispose(); prev.modified.dispose(); }
     diffBar.replaceChildren(h('b', null, title), h('span', { class: 'grow' }), ...actions, h('button', { class: 'btn small', onclick: closeDiff }, '닫기'));
@@ -602,8 +608,9 @@ export async function mount(root, ctx) {
       : '당신은 친절한 한국어 개발 도우미입니다. Markdown으로 간결하게 답하고, 코드는 코드 블록으로 보여 주세요.';
     const user = model ? `요청: ${task}\n\n파일: ${t.name} (${lang})\n\`\`\`\n${code.slice(0, 60000)}\n\`\`\`` : `요청: ${task}`;
     aiBusy = true; drawAi(); aiOut.innerHTML = '<p class="hint">AI가 작업 중입니다…</p>';
+    let use = null;
     try {
-      const ans = await chat([{ role: 'system', content: sys }, { role: 'user', content: user }]);
+      const ans = await chat([{ role: 'system', content: sys }, { role: 'user', content: user }], null, { kind: 'code', onUsage: u => use = u, outHint: editMode ? Math.ceil(code.length / 3) + 300 : 1500 });
       if (editMode) {
         const m = ans.match(/```[^\n]*\n([\s\S]*?)```/);
         if (!m) { aiOut.innerHTML = renderMarkdown(ans); return; }
@@ -621,8 +628,9 @@ export async function mount(root, ctx) {
         aiOut.innerHTML = renderMarkdown(ans);
         aiOut.prepend(h('p', null, h('button', { class: 'btn small', onclick: () => { const m = ans.match(/```[^\n]*\n([\s\S]*?)```/); if (m) { const end = model.getFullModelRange().getEndPosition(); editor.executeEdits('ai', [{ range: new monaco.Range(end.lineNumber, end.column, end.lineNumber, end.column), text: '\n\n' + m[1] }]); toast('파일 끝에 붙였습니다'); } } }, '테스트 코드를 파일 끝에 붙이기')));
       } else aiOut.innerHTML = renderMarkdown(ans);
+      if (use) aiOut.append(h('div', { class: 'msg-use' }, `${use.model} · 입력 ${fmtTok(use.inTok)} · 출력 ${fmtTok(use.outTok)} 토큰 · ${krw(use.usd)}${use.estimated ? ' (추정)' : ''}`));
       aiOut.querySelectorAll('pre').forEach(p => p.append(h('button', { class: 'vc-copy', onclick: () => copyText(p.querySelector('code')?.textContent || p.textContent, '코드를 복사했습니다') }, '복사')));
-    } catch (e) { aiOut.innerHTML = ''; aiOut.append(h('p', { class: 'error' }, e.message)); }
+    } catch (e) { aiOut.innerHTML = ''; aiOut.append(h('p', { class: e.cancelled ? 'hint' : 'error' }, e.message)); }
     finally { aiBusy = false; const keep = aiOut.cloneNode(true); drawAi(); aiOut.replaceChildren(...keep.childNodes); }
   }
 
@@ -751,6 +759,7 @@ export async function mount(root, ctx) {
   return { cleanup: () => {
     for (const t of tabs) if (t.kind === 'd' && isDirty(t)) save(t);
     db.events.removeEventListener('change', onDb);
+    themeEvents.removeEventListener('change', onTheme);
     document.removeEventListener('keydown', onKey);
     window.removeEventListener('beforeunload', beforeUnload);
     if (native.available && termStarted) native.call('term.kill', { id: TERM_ID }).catch(() => {});

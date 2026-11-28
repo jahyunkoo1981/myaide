@@ -20,6 +20,7 @@ export const TABS = [
   { key: 'ledger', label: '가계부', icon: 'ledger', group: 'personal' },
   { key: 'aide', label: 'AIDE', icon: 'aide', group: 'personal' },
   { key: 'aimd', label: 'VisualCode', icon: 'code', group: 'personal' },
+  { key: 'masker', label: '문서 가리기', icon: 'shield', group: 'personal' },
   { key: 'accounts', label: '계정정보', icon: 'accounts', group: 'personal' },
   { key: 'backup', label: '백업', icon: 'backup', group: 'system' },
   { key: 'widgets', label: '바탕화면 위젯', icon: 'widget', group: 'system' },
@@ -38,7 +39,17 @@ const DEFAULTS = {
   capture: { allScreens: false, fontSize: 32, color: '#E5484D' },
   aiSite: 'chatgpt',
   aiModel: 'gpt-4o-mini',
+  aiProvider: 'openai',   // openai | anthropic | gemini
+  aiModels: {},           // chosen model per provider
   transcribeModel: 'gpt-4o-mini-transcribe',
+  aiAsk: 'always',        // always | over | never — AI에 보내기 전 사용료 확인
+  aiAskOver: 10,          // 'over'일 때 기준 금액(원)
+  aiBudget: 0,            // MY AIDE 월 한도(원), 0 = 없음
+  usdKrw: 1350,
+  aiPrices: {},
+  aiMask: { on: true, words: [], contact: true, money: true, secret: true, names: false },   // AI 정보 보호
+  aiGeminiPaid: false,
+  aiBlockRecordsOnRisk: true,           // 모델별 단가 직접 입력 {model: [입력, 출력]} USD/1M
   autoBackupDays: 1,
   keepBackups: 30
 };

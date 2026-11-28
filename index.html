@@ -12,6 +12,9 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="dark.css">
+<script>/* 화이트·다크: applied before the first paint so the screen never flashes */
+(function () { try { var m = localStorage.getItem('myaide.theme') || 'light'; var d = m === 'dark' || (m === 'system' && matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.dataset.theme = d ? 'dark' : 'light'; } catch (e) {} })();</script>
 <script src="config.js"></script>
 </head>
 <body>

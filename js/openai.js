@@ -1,7 +1,10 @@
-// OpenAI calls go straight from this device to api.openai.com. The API key lives in the vault (encrypted).
+// AI calls go straight from this device to the chosen service (OpenAI, Claude or Gemini).
+// API keys live in the vault (encrypted). 받아쓰기·사진 설명·의미 검색 always use OpenAI.
 import { h, dialog } from './util.js';
 import * as vault from './vault.js';
 import { prefs } from './prefs.js';
+import { guardChat, guardTranscribe } from './usage.js';
+import * as privacy from './privacy.js';
 
 export async function unlockVaultPrompt(reason) {
   if (vault.isOpen()) return true;
@@ -33,36 +36,137 @@ async function call(path, init) {
   return res.json();
 }
 
-export async function chat(messages, model) {
-  const r = await call('chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: model || prefs().aiModel || 'gpt-4o-mini', messages }) });
-  return r.choices?.[0]?.message?.content || '';
+// ---------- which AI ----------
+export const PROVIDERS = {
+  openai: { name: 'OpenAI (ChatGPT)', secret: 'openai', keyUrl: 'platform.openai.com/api-keys', keyHint: 'sk-로 시작하는 키',
+    fallback: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-4o-mini'] },
+  anthropic: { name: 'Claude (Anthropic)', secret: 'anthropic', keyUrl: 'console.anthropic.com/settings/keys', keyHint: 'sk-ant-로 시작하는 키',
+    fallback: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] },
+  gemini: { name: 'Gemini (Google)', secret: 'gemini', keyUrl: 'aistudio.google.com/apikey', keyHint: 'AIza로 시작하는 키',
+    fallback: ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview'] }
+};
+export function currentAi() {
+  const p = prefs(), provider = PROVIDERS[p.aiProvider] ? p.aiProvider : 'openai';
+  const model = (p.aiModels || {})[provider] || (provider === 'openai' ? p.aiModel : null) || PROVIDERS[provider].fallback[0];
+  return { provider, model };
+}
+async function keyFor(provider) {
+  if (!await unlockVaultPrompt('API 키는 비밀번호로 암호화되어 있습니다. 비밀번호를 입력해 주세요.')) throw new Error('비밀번호를 확인하지 않아 AI 기능을 쓸 수 없습니다.');
+  const key = await vault.getSecret(PROVIDERS[provider].secret);
+  if (!key) throw new Error(`${PROVIDERS[provider].name} API 키가 없습니다. 설정 › AI 연결에서 키를 넣어 주세요.`);
+  return key;
+}
+const failMsg = async (res, who) => {
+  let msg = res.statusText; try { const j = await res.json(); msg = j.error?.message || j.error?.status || msg; } catch { }
+  if (res.status === 401) return `${who} API 키가 올바르지 않습니다 (${msg}). 설정 › AI 연결에서 키를 다시 넣어 주세요.`;
+  if (res.status === 403) return `${who}: 이 키로는 권한이 없습니다 (${msg}).`;
+  if (res.status === 400 && /credit|balance|billing/i.test(msg)) return `${who}: 크레딧(잔액)이 부족합니다. 콘솔에서 충전해 주세요 (${msg}).`;
+  if (res.status === 404) return `${who}: 이 모델을 쓸 수 없습니다 (${msg}). 설정 › AI 연결에서 다른 모델을 고르세요.`;
+  if (res.status === 429) return `${who}: 사용 한도나 잔액이 부족합니다 (${msg}).`;
+  return `${who} 오류: ${msg}`;
+};
+
+// List the models this key can use (newest first). Falls back to a built-in list when it can't ask.
+export async function listModels(provider, key) {
+  if (!key) return PROVIDERS[provider].fallback;
+  if (provider === 'openai') {
+    const res = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: 'Bearer ' + key } });
+    if (!res.ok) throw new Error(await failMsg(res, 'OpenAI'));
+    const j = await res.json();
+    return j.data.filter(m => /^(gpt|o\d|chat)/.test(m.id) && !/(audio|realtime|tts|transcribe|image|embedding|search|moderation|instruct|dall|whisper|codex|cyber)/.test(m.id))
+      .sort((a, b) => b.created - a.created).map(m => m.id);
+  }
+  if (provider === 'anthropic') {
+    const res = await fetch('https://api.anthropic.com/v1/models?limit=100', { headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' } });
+    if (!res.ok) throw new Error(await failMsg(res, 'Claude'));
+    return (await res.json()).data.map(m => m.id);
+  }
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=' + encodeURIComponent(key));
+  if (!res.ok) throw new Error(await failMsg(res, 'Gemini'));
+  return (await res.json()).models.filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /gemini/.test(m.name) && !/(tts|image|live|embedding|audio|transcribe|translate|omni)/.test(m.name))
+    .map(m => m.name.replace(/^models\//, '')).reverse();
 }
 
-export async function transcribe(blob) {
+// Text chat with the AI chosen in 설정. `model` given = an OpenAI-only job (e.g. picture understanding).
+// opts: { kind: 'chat'|'summary'|'mindmap'|'code'|'vision', ask: false → 금액 확인 없이 기록만, outHint, onUsage(e),
+//         mask: false → 가리기 끔, maskSession: 대화 내내 같은 표시를 쓰기 위한 세션, onPrivacy(info) }
+// 민감한 단어는 보내기 직전에 [회사1] 등으로 바꾸고, 답은 원래 단어로 되돌려 돌려줍니다.
+// 보내기 전에 예상 토큰·금액을 보여 주고(설정에 따라), 답을 받으면 실제 사용 토큰으로 기록합니다.
+const MASK_NOTE = '[안내] 개인정보 보호를 위해 일부 단어가 [회사1], [사람2], [금액1]처럼 대괄호 표시로 바뀌어 있습니다. 표시를 추측해 풀지 말고, 답에서도 같은 표시를 그대로 쓰세요.';
+const withNote = p => p.info.total ? [{ role: 'system', content: MASK_NOTE }, ...p.messages] : p.messages;
+export async function chat(messages, model, opts = {}) {
+  if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다.');
+  const priv = opts.mask === false ? null : privacy.prepare(messages, opts.maskSession);
+  if (model) {
+    const done = await guardChat({ provider: 'openai', model, kind: opts.kind || 'vision', messages: priv ? priv.messages : messages, privacy: priv, ask: opts.ask, outHint: opts.outHint });
+    const r = await call('chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages: priv ? withNote(priv) : messages }) });
+    opts.onUsage?.(done({ inTok: r.usage?.prompt_tokens, outTok: r.usage?.completion_tokens }));
+    if (priv) opts.onPrivacy?.(priv.info);
+    const out = r.choices?.[0]?.message?.content || '';
+    return priv ? priv.unmask(out) : out;
+  }
+  const { provider, model: m } = currentAi();
+  const key = await keyFor(provider);
+  const done = await guardChat({ provider, model: m, kind: opts.kind || 'chat', messages: priv ? priv.messages : messages, privacy: priv, trainRisk: privacy.trainRisk(provider), ask: opts.ask, outHint: opts.outHint });
+  messages = priv ? withNote(priv) : messages;   // 확인 창에서 더 가린 내용까지 반영된 최종본
+  const finish = (u, text) => { opts.onUsage?.(done(u)); if (priv) opts.onPrivacy?.(priv.info); return priv ? priv.unmask(text) : text; };
+  const textOf = c => typeof c === 'string' ? c : (c || []).filter(x => x.type === 'text').map(x => x.text).join('\n');
+  if (provider === 'openai') {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify({ model: m, messages }) });
+    if (!res.ok) throw new Error(await failMsg(res, 'OpenAI'));
+    const j = await res.json();
+    return finish({ inTok: j.usage?.prompt_tokens, outTok: j.usage?.completion_tokens }, j.choices?.[0]?.message?.content || '');
+  }
+  const system = messages.filter(x => x.role === 'system').map(x => textOf(x.content)).join('\n\n');
+  const turns = messages.filter(x => x.role !== 'system');
+  if (provider === 'anthropic') {
+    const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: m, max_tokens: 8000, ...(system ? { system } : {}), messages: turns.map(x => ({ role: x.role === 'assistant' ? 'assistant' : 'user', content: textOf(x.content) })) }) });
+    if (!res.ok) throw new Error(await failMsg(res, 'Claude'));
+    const j = await res.json(), u = j.usage || {};
+    return finish({ inTok: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0), outTok: u.output_tokens }, (j.content || []).filter(b => b.type === 'text').map(b => b.text).join(''));
+  }
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+    body: JSON.stringify({ ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), contents: turns.map(x => ({ role: x.role === 'assistant' ? 'model' : 'user', parts: [{ text: textOf(x.content) }] })) }) });
+  if (!res.ok) throw new Error(await failMsg(res, 'Gemini'));
+  const j = await res.json(), u = j.usageMetadata || {};
+  return finish({ inTok: u.promptTokenCount, outTok: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) }, (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join(''));
+}
+
+export async function transcribe(blob, { seconds, ask } = {}) {
   if (blob.size > 25 * 1024 * 1024) throw new Error('녹음 파일이 25MB를 넘어 한 번에 변환할 수 없습니다. 녹음을 나눠서 해 주세요.');
   const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : blob.type.includes('wav') ? 'wav' : 'webm';
   const form = new FormData();
   form.append('file', blob, 'meeting.' + ext);
-  form.append('model', prefs().transcribeModel || 'gpt-4o-mini-transcribe');
+  const tm = prefs().transcribeModel || 'gpt-4o-mini-transcribe';
+  form.append('model', tm);
+  const done = await guardTranscribe({ model: tm, seconds: seconds || Math.max(30, blob.size / 16000), ask });
   form.append('language', 'ko');
   const r = await call('audio/transcriptions', { method: 'POST', body: form });
+  const u = r.usage && r.usage.type === 'tokens' ? { inTok: r.usage.input_tokens, outTok: r.usage.output_tokens } : null;
+  done(u);
   return r.text || '';
 }
 
 // Picture understanding for 사진·동영상: a short Korean description + tags as JSON.
-export async function describeImage(dataUrl, hint = '') {
+export async function describeImage(dataUrl, hint = '', opts = {}) {
   const out = await chat([
     { role: 'system', content: '사진을 보고 한국어로 검색용 정보를 만듭니다. 반드시 JSON 하나만 출력: {"desc":"한두 문장 설명","tags":["장소/사물/사람수/행동/계절/색 등 짧은 낱말 5~12개"]}. 사람의 신원(이름)은 추측하지 마세요.' },
     { role: 'user', content: [{ type: 'text', text: '이 사진을 설명해 주세요.' + (hint ? ' 참고: ' + hint : '') }, { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } }] }
-  ], prefs().visionModel || 'gpt-4o-mini');
+  ], visionModel(), { kind: 'vision', ask: false, ...opts });
   const j = JSON.parse(out.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
   return { desc: String(j.desc || '').slice(0, 300), tags: (j.tags || []).map(t => String(t).slice(0, 20)).slice(0, 15) };
 }
 
-// Small text embeddings (256 numbers) for meaning-based search.
+export const visionModel = () => prefs().visionModel || (currentAi().provider === 'openai' ? currentAi().model : 'gpt-5.6-luna');
+
+// Small text embeddings (256 numbers) for meaning-based search. 1회 0.001원 미만이라 묻지 않고 기록만 합니다.
 export async function embed(texts) {
+  const done = await guardChat({ provider: 'openai', model: 'text-embedding-3-small', kind: 'embed', messages: texts.map(t => ({ role: 'user', content: t })), ask: false, outHint: 0 });
   const r = await call('embeddings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: 'text-embedding-3-small', input: texts, dimensions: 256 }) });
+  done({ inTok: r.usage?.prompt_tokens, outTok: 0 });
   return r.data.map(d => d.embedding);
 }

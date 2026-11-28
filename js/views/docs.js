@@ -1,5 +1,5 @@
 // 업무메모 (dated memos) and AIMD (prompt library): titled rich-text pages.
-import { h, uid, today, plain, debounce, confirmBox, copyText, toast } from '../util.js';
+import { h, uid, today, plain, debounce, confirmBox, copyText, toast, listItem, noAiButton } from '../util.js';
 import * as db from '../db.js';
 import { richEditor } from '../editor.js';
 
@@ -33,10 +33,16 @@ export async function mount(root, ctx) {
   function drawList() {
     const q = search.value.trim().toLowerCase();
     const shown = items.filter(i => !q || (i.title || '').toLowerCase().includes(q) || plain(i.body).toLowerCase().includes(q));
-    list.replaceChildren(...(shown.length ? shown.map(i => h('button', { class: 'list-item', 'aria-selected': String(i.id === openId), onclick: () => ctx.go(col, i.id) },
-      col === 'notes' ? h('div', { class: 'd' }, i.date || '') : null,
-      h('div', { class: 't' }, i.title || '제목 없음'),
-      h('div', { class: 's' }, plain(i.body).slice(0, 70) || ' '))) : [h('div', { class: 'list-empty' }, q ? '검색 결과가 없습니다.' : K.empty)]));
+    list.replaceChildren(...(shown.length ? shown.map(i => listItem({ selected: i.id === openId, onOpen: () => ctx.go(col, i.id), onDelete: () => removeDoc(i),
+      date: col === 'notes' ? i.date || '' : null, title: i.title || '제목 없음', sub: (i.noAi ? '[AI 제외] ' : '') + plain(i.body).slice(0, 70) })) : [h('div', { class: 'list-empty' }, q ? '검색 결과가 없습니다.' : K.empty)]));
+  }
+
+  async function removeDoc(i) {
+    if (!await confirmBox(`‘${i.title || '제목 없음'}’을(를) 삭제할까요?`, '삭제', true)) return;
+    if (i.id === openId) { save.cancel(); dirty = false; }
+    await db.remove(col, i.id); toast('삭제했습니다');
+    items = items.filter(x => x.id !== i.id);
+    if (i.id === openId) ctx.go(col); else drawList();
   }
 
   async function create() {
@@ -87,6 +93,7 @@ export async function mount(root, ctx) {
       col === 'notes' ? h('label', { class: 'row', style: { gap: '6px' } }, '작성일',
         h('input', { type: 'date', value: data.date || today(), onchange: e => { if (e.target.value) { current.date = e.target.value; touch(); save.flush(); } } })) : null,
       state, h('span', { class: 'grow' }),
+      col === 'notes' ? noAiButton(!!current.noAi, v => { if (v) current.noAi = true; else delete current.noAi; touch(); save.flush(); }) : null,
       h('button', { class: 'btn small ghost danger', onclick: async () => {
         if (!await confirmBox(`‘${current.title || '제목 없음'}’을(를) 삭제할까요?`, '삭제', true)) return;
         save.cancel(); dirty = false;

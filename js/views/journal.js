@@ -1,4 +1,4 @@
-import { h, today, parseYmd, ymd, WEEK, plain, debounce, pad2, confirmBox, toast } from '../util.js';
+import { h, today, parseYmd, ymd, WEEK, plain, debounce, pad2, confirmBox, toast, noAiButton } from '../util.js';
 import * as db from '../db.js';
 import { richEditor } from '../editor.js';
 
@@ -6,7 +6,7 @@ export async function mount(root, ctx) {
   let date = ctx.param || today();
   let month = parseYmd(date); month.setDate(1);
   let entries = new Map();
-  let ed = null, dirty = false;
+  let ed = null, dirty = false, noAi = false;
 
   const cal = h('div', { class: 'mini-cal' });
   const search = h('input', { type: 'search', placeholder: '일지 검색' });
@@ -54,7 +54,7 @@ export async function mount(root, ctx) {
     list.replaceChildren(...(items.length ? items.map(e => {
       const d = parseYmd(e.id);
       return h('button', { class: 'list-item', 'aria-selected': String(e.id === date), onclick: () => ctx.go('journal', e.id) },
-        h('div', { class: 'd' }, `${e.id} (${WEEK[d.getDay()]})`),
+        h('div', { class: 'd' }, `${e.id} (${WEEK[d.getDay()]})`, e.noAi ? h('span', { class: 'noai-tag' }, 'AI 제외') : null),
         h('div', { class: 's' }, plain(e.body).slice(0, 80)));
     }) : [h('div', { class: 'list-empty' }, q ? '검색 결과가 없습니다.' : '아직 쓴 일지가 없습니다. 오늘 한 일을 적어 보세요.')]));
   };
@@ -64,7 +64,7 @@ export async function mount(root, ctx) {
     dirty = false;
     const body = ed.get();
     if (!plain(body) && !body.includes('<img')) { if (entries.has(date)) await db.remove('journal', date); }
-    else await db.put('journal', date, { date, body });
+    else await db.put('journal', date, { date, body, ...(noAi ? { noAi: true } : {}) });
     state.textContent = '저장됨';
   };
   const save = debounce(saveNow, 700);
@@ -77,6 +77,7 @@ export async function mount(root, ctx) {
     const dd = parseYmd(d);
     if (dd.getMonth() !== month.getMonth() || dd.getFullYear() !== month.getFullYear()) { month = new Date(dd); month.setDate(1); }
     const e = await db.get('journal', d);
+    noAi = !!(e && e.noAi);
     ed = richEditor({ value: e ? e.body : '', placeholder: '오늘 한 일, 이슈, 내일 할 일을 적어 보세요.', onChange: () => { dirty = true; state.textContent = '저장 중…'; save(); } });
     const isToday = d === today();
     editorPane.replaceChildren(
@@ -88,6 +89,7 @@ export async function mount(root, ctx) {
         h('span', { class: 'stamp-nav' },
           h('button', { class: 'btn small ghost back-btn', onclick: () => split.classList.remove('has-open') }, '‹ 날짜 목록'),
           h('span', { class: 'grow' }), state,
+          noAiButton(noAi, async v => { noAi = v; const cur = await db.get('journal', d); if (cur || plain(ed.get())) await db.put('journal', d, { date: d, body: ed.get(), ...(v ? { noAi: true } : {}) }); }),
           h('button', { class: 'btn small ghost danger', title: '이 날 일지 삭제', onclick: async () => {
             const has = (await db.get('journal', d)) || plain(ed.get()) || ed.get().includes('<img');
             if (!has) { toast('지울 일지가 없습니다'); return; }

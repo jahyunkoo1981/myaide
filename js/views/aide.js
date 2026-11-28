@@ -1,6 +1,9 @@
 import { h, today, won, plain, ymd, toast, icon } from '../util.js';
 import * as db from '../db.js';
 import { chat } from '../openai.js';
+import { krw, fmtTok, monthTotal, usageEvents } from '../usage.js';
+import { newSession, trainRisk } from '../privacy.js';
+import { currentAi } from '../openai.js';
 import { prefs, save as savePrefs, AI_SITES, aiSite } from '../prefs.js';
 import { monthSummary } from './ledger.js';
 import { upcoming } from './schedule.js';
@@ -28,9 +31,9 @@ const topCats = s => { const t = [...s.cats.entries()].sort((a, b) => b[1] - a[1
 
 async function recordsContext() {
   const since = new Date(); since.setDate(since.getDate() - 14);
-  const journal = (await db.all('journal')).filter(j => j.id >= ymd(since)).sort((a, b) => a.id.localeCompare(b.id))
+  const journal = (await db.all('journal')).filter(j => j.id >= ymd(since) && !j.noAi).sort((a, b) => a.id.localeCompare(b.id))
     .map(j => `[${j.id}] ${plain(j.body).slice(0, 800)}`).join('\n');
-  const notes = (await db.all('notes')).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 15)
+  const notes = (await db.all('notes')).filter(n => !n.noAi).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 15)
     .map(n => `- (${n.date}) ${n.title}: ${plain(n.body).slice(0, 300)}`).join('\n');
   const sched = (await upcoming(14)).map(o => `- ${o.on} ${o.time || ''} ${o.title}`).join('\n');
   return `오늘은 ${today()}입니다.\n\n# 최근 2주 업무일지\n${journal || '없음'}\n\n# 최근 업무메모\n${notes || '없음'}\n\n# 앞으로 2주 일정\n${sched || '없음'}`;
@@ -38,6 +41,7 @@ async function recordsContext() {
 
 export async function mount(root) {
   let history = await db.kvGet('aide.history', []);
+  let maskSession = await db.kvGet('aide.mask', null) || newSession();   // 대화 내내 같은 단어 → 같은 표시
   const log = h('div', { class: 'chat-log', 'aria-live': 'polite' });
   const input = h('textarea', { rows: 1, placeholder: '무엇이든 물어보세요', 'aria-label': '질문' });
   const useRecords = h('input', { type: 'checkbox', checked: true });
@@ -47,10 +51,17 @@ export async function mount(root) {
   const fit = () => { input.style.height = 'auto'; input.style.height = Math.min(180, input.scrollHeight) + 'px'; };
   input.addEventListener('input', fit);
   const started = () => wrap.classList.toggle('started', log.children.length > 0);
-  const add = (role, text) => {
-    log.append(h('div', { class: 'msg ' + (role === 'user' ? 'me' : 'ai') }, text));
+  const add = (role, text, use) => {
+    log.append(h('div', { class: 'msg ' + (role === 'user' ? 'me' : 'ai') }, text, use ? usageLine(use) : null));
     log.scrollTop = log.scrollHeight; started();
   };
+  const usageLine = u => h('div', { class: 'msg-use', title: u.estimated ? '응답에 사용량이 없어 추정치로 기록했습니다' : '서비스가 알려 준 실제 사용 토큰입니다' },
+    `${u.model} · 입력 ${fmtTok(u.inTok)} · 출력 ${fmtTok(u.outTok)} 토큰 · ${krw(u.usd)}${u.estimated ? ' (추정)' : ''}`,
+    u.masked ? h('span', { class: 'priv-ok' }, ` · 가린 정보 ${u.masked}곳 복원됨`) : null,
+    u.noRecords ? h('span', { class: 'priv-warn-t' }, ' · 학습 위험 연결이라 업무 기록은 보내지 않음') : null);
+  const monthChip = h('button', { class: 'chip use-chip', title: '설정 › AI 사용량에서 자세히 봅니다', onclick: () => location.hash = '#settings' });
+  const drawMonth = async () => { const t = await monthTotal(); monthChip.textContent = `이번 달 AI ${krw(t.usd)} · ${fmtTok(t.inTok + t.outTok)}토큰`; };
+  usageEvents.addEventListener('call', () => setTimeout(drawMonth, 300)); drawMonth();
   const persist = () => db.kvSet('aide.history', history.slice(-40));
 
   async function send(text) {
@@ -59,10 +70,20 @@ export async function mount(root) {
     add('user', text); history.push({ role: 'user', content: text });
     const wait = h('div', { class: 'msg ai muted' }, '생각하는 중…'); log.append(wait); log.scrollTop = log.scrollHeight;
     try {
-      const sys = '당신은 MY AIDE라는 개인 업무 비서입니다. 한국어로 간결하고 실무적으로 답하세요.' + (useRecords.checked ? '\n\n아래는 사용자의 업무 기록입니다. 질문과 관련될 때만 참고하고, 기록에 없는 사실을 지어내지 마세요.\n\n' + await recordsContext() : '');
-      const answer = await chat([{ role: 'system', content: sys }, ...history.slice(-12)]);
-      wait.remove(); add('assistant', answer); history.push({ role: 'assistant', content: answer }); persist();
-    } catch (e) { wait.remove(); add('assistant', e.message); history.pop(); }
+      // 학습에 쓰일 수 있는 연결(Gemini 무료 키 등)이면 업무 기록은 보내지 않음
+      const risky = trainRisk(currentAi().provider) && prefs().aiBlockRecordsOnRisk !== false;
+      const sys = '당신은 MY AIDE라는 개인 업무 비서입니다. 한국어로 간결하고 실무적으로 답하세요.' + (useRecords.checked && !risky ? '\n\n아래는 사용자의 업무 기록입니다. 질문과 관련될 때만 참고하고, 기록에 없는 사실을 지어내지 마세요.\n\n' + await recordsContext() : '');
+      let use = null, masked = 0;
+      const answer = await chat([{ role: 'system', content: sys }, ...history.slice(-12).map(({ role, content }) => ({ role, content }))], null,
+        { kind: 'chat', onUsage: u => use = u, maskSession, onPrivacy: i => masked = i.total });
+      db.kvSet('aide.mask', maskSession);
+      if (use) use = { ...use, masked, noRecords: risky && useRecords.checked };
+      wait.remove(); add('assistant', answer, use); history.push({ role: 'assistant', content: answer, use }); persist();
+    } catch (e) {
+      wait.remove(); history.pop();
+      if (e.cancelled) { log.lastElementChild?.remove(); started(); input.value = text; fit(); input.focus(); toast(e.message); }
+      else add('assistant', e.message);
+    }
   }
   // Same question in ChatGPT / Claude (they accept ?q=); Gemini has no such link, so the text is copied first.
   function openOutside() {
@@ -84,12 +105,13 @@ export async function mount(root) {
       h('label', { class: 'check', style: { fontSize: '13.5px', color: 'var(--ink-2)' } }, useRecords, '내 업무 기록 참고'),
       h('span', { class: 'muted' }, '·'),
       site, h('button', { class: 'btn small', onclick: openOutside, title: '입력한 질문을 그 사이트에서 엽니다' }, '에서 묻기'),
-      h('button', { class: 'btn small ghost', onclick: async () => { history = []; await persist(); log.replaceChildren(); started(); input.focus(); } }, '대화 지우기')),
+      monthChip,
+      h('button', { class: 'btn small ghost', onclick: async () => { history = []; maskSession = newSession(); db.kvSet('aide.mask', maskSession); await persist(); log.replaceChildren(); started(); input.focus(); } }, '대화 지우기')),
     quick);
 
   wrap.append(h('div', { class: 'view-head' }, h('h1', null, 'AIDE')), log, hero);
   root.append(wrap);
-  history.forEach(m => add(m.role, m.content));
+  history.forEach(m => add(m.role, m.content, m.use));
   started();
   setTimeout(() => input.focus(), 0);
   return { open: () => input.focus() };

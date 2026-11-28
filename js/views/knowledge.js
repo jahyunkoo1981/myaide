@@ -1,4 +1,4 @@
-import { h, uid, debounce, confirmBox, toast, fmtTime } from '../util.js';
+import { h, uid, debounce, confirmBox, toast, fmtTime, listItem } from '../util.js';
 import * as db from '../db.js';
 import { renderMarkdown, wikiLinks } from '../md.js';
 
@@ -20,13 +20,19 @@ export async function mount(root, ctx) {
   const byTitle = t => notes.find(n => (n.title || '').trim().toLowerCase() === t.trim().toLowerCase());
   const load = async () => { notes = (await db.all('knowledge')).sort((a, b) => b.updatedAt - a.updatedAt); };
 
+  async function removeNote(n) {
+    if (!await confirmBox(`‘${n.title || '제목 없음'}’ 노트를 삭제할까요?`, '삭제', true)) return;
+    if (n.id === openId) { save.cancel(); dirty = false; }
+    await db.remove('knowledge', n.id); toast('삭제했습니다');
+    notes = notes.filter(x => x.id !== n.id);
+    if (n.id === openId) ctx.go('knowledge'); else drawList();
+  }
+
   function drawList() {
     const q = search.value.trim().toLowerCase();
     const shown = notes.filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.md || '').toLowerCase().includes(q));
-    list.replaceChildren(...(shown.length ? shown.map(n => h('button', { class: 'list-item', 'aria-selected': String(n.id === openId), onclick: () => ctx.go('knowledge', n.id) },
-      h('div', { class: 't' }, n.title || '제목 없음'),
-      h('div', { class: 's' }, (n.md || '').replace(/[#>*`\[\]]/g, '').slice(0, 70) || ' '),
-      h('div', { class: 'd' }, fmtTime(n.updatedAt)))) : [h('div', { class: 'list-empty' }, q ? '검색 결과가 없습니다.' : 'Markdown으로 지식을 쌓아 보세요. [[노트 제목]]으로 노트끼리 연결됩니다.')]));
+    list.replaceChildren(...(shown.length ? shown.map(n => listItem({ selected: n.id === openId, onOpen: () => ctx.go('knowledge', n.id), onDelete: () => removeNote(n),
+      date: fmtTime(n.updatedAt), title: n.title || '제목 없음', sub: (n.md || '').replace(/[#>*`\[\]]/g, '').slice(0, 70) })) : [h('div', { class: 'list-empty' }, q ? '검색 결과가 없습니다.' : 'Markdown으로 지식을 쌓아 보세요. [[노트 제목]]으로 노트끼리 연결됩니다.')]));
   }
 
   async function create(title) {

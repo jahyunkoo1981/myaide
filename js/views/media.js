@@ -3,7 +3,8 @@
 import { h, uid, toast, confirmBox, promptBox, dialog, download, blobToDataUrl, icon, debounce, pad2 } from '../util.js';
 import * as db from '../db.js';
 import * as ms from '../mediastore.js';
-import { describeImage, embed, apiKey } from '../openai.js';
+import { describeImage, embed, apiKey, visionModel } from '../openai.js';
+import { confirmCost, usd as usdOf, rate } from '../usage.js';
 
 const COL = 'media';
 const NOFOLDER = '미분류';
@@ -65,6 +66,15 @@ export async function mount(root, ctx) {
   const viewSeg = h('div', { class: 'seg' });
   const typeSeg = h('div', { class: 'seg' });
   const selBar = h('div', { class: 'md-selbar', hidden: true });
+  // 전체 선택 (everything the current filter shows) + 휴지통
+  const selAll = h('input', { type: 'checkbox', 'aria-label': '전체 선택', onchange: () => {
+    const list = filtered();
+    if (selAll.checked) list.forEach(i => sel.add(i.id)); else sel.clear();
+    draw();
+  } });
+  const selAllLbl = h('label', { class: 'check md-selall-box' }, selAll, h('span', null, '전체 선택'));
+  const trashBtn = h('button', { type: 'button', class: 'md-trash', title: '선택한 항목 삭제', 'aria-label': '선택한 항목 삭제', disabled: true, html: TRASH_SVG,
+    onclick: () => removeItems(items.filter(i => sel.has(i.id))) });
   const grid = h('div', { class: 'md-grid-wrap' });
   const upPanel = h('div', { class: 'md-uploads', hidden: true });
   const head = h('div', { class: 'md-head' },
@@ -75,6 +85,7 @@ export async function mount(root, ctx) {
     h('div', { class: 'md-filters' }, h('button', { class: 'btn small md-mobside', onclick: () => side.classList.toggle('open') }, '폴더·테마'), viewSeg, typeSeg,
       h('button', { class: 'btn small ghost', 'aria-pressed': 'false', onclick: e => { f.fav = !f.fav; e.currentTarget.setAttribute('aria-pressed', String(f.fav)); draw(); } }, '♥ 즐겨찾기'),
       h('span', { class: 'grow' }),
+      h('div', { class: 'md-pick' }, selAllLbl, trashBtn),
       h('button', { class: 'btn small', onclick: findDuplicates }, '중복 찾기'),
       h('button', { class: 'btn small', onclick: () => aiTagAll() }, '✦ AI 설명 만들기'),
       h('button', { class: 'btn small ghost', onclick: storageInfo }, '저장공간')),
@@ -251,20 +262,26 @@ export async function mount(root, ctx) {
 
   // ---------- selection actions ----------
   function drawSel() {
+    const shownNow = filtered();
+    const nSel = shownNow.filter(i => sel.has(i.id)).length;
+    selAll.checked = !!shownNow.length && nSel === shownNow.length;
+    selAll.indeterminate = nSel > 0 && nSel < shownNow.length;
+    trashBtn.disabled = !sel.size;
+    trashBtn.title = sel.size ? `선택한 ${sel.size}개 삭제` : '삭제할 항목을 먼저 고르세요';
     selBar.hidden = !sel.size;
     if (!sel.size) return;
     const chosen = items.filter(i => sel.has(i.id));
     const vids = chosen.filter(i => i.type === 'video');
-    selBar.replaceChildren(h('b', null, `${sel.size}개 선택`),
+    selBar.replaceChildren(...[h('b', null, `${sel.size}개 선택`),
       h('button', { class: 'btn small', onclick: () => downloadItems(chosen) }, '원본 다운로드'),
       h('button', { class: 'btn small', onclick: () => moveTo(chosen) }, '폴더로 이동'),
       h('button', { class: 'btn small', onclick: () => tagThemes(chosen) }, '테마 지정'),
       h('button', { class: 'btn small', onclick: async () => { const on = !chosen.every(i => i.fav); for (const it of chosen) await saveItem(it, { fav: on }); } }, '♥'),
       h('button', { class: 'btn small', onclick: () => aiTagAll(chosen) }, '✦ AI 설명'),
       vids.length ? h('button', { class: 'btn small', onclick: () => editVideos(vids) }, vids.length > 1 ? '동영상 합치기·편집' : '동영상 편집') : null,
-      h('button', { class: 'btn small ghost danger', onclick: () => removeItems(chosen) }, '삭제'),
       h('span', { class: 'grow' }),
-      h('button', { class: 'btn small ghost', onclick: () => { sel.clear(); draw(); } }, '선택 해제'));
+      h('button', { type: 'button', class: 'md-trash', title: `선택한 ${chosen.length}개 삭제`, 'aria-label': `선택한 ${chosen.length}개 삭제`, html: TRASH_SVG, onclick: () => removeItems(chosen) }),
+      h('button', { class: 'btn small ghost', onclick: () => { sel.clear(); draw(); } }, '선택 해제')].filter(Boolean));
   }
   async function moveTo(list) {
     const opts = allFolders();
@@ -292,14 +309,32 @@ export async function mount(root, ctx) {
     for (const t of picks) if (!meta.themes.includes(t)) meta.themes.push(t);
     await saveMeta(); sel.clear(); toast('테마를 저장했습니다');
   }
+  // Delete: the tiles vanish at once, then 6 items at a time are removed from Drive (original, thumbnail and
+  // preview of one item in parallel). The screen is redrawn once at the end instead of after every item.
+  let bulk = false;
   async function removeItems(list) {
+    if (!list.length) return;
     if (!await confirmBox(`${list.length}개를 삭제할까요? Google Drive의 원본도 지워집니다 (Drive 휴지통에 들어가지 않습니다).`, '삭제', true)) return;
-    let n = 0;
-    for (const it of list) {
-      try { await ms.remove(it.driveId); await ms.remove(it.thumbId); await ms.remove(it.previewId); await db.remove(COL, it.id); await db.deleteBlob('mt:' + it.id); await db.deleteBlob('mp:' + it.id); n++; }
-      catch (e) { toast(`${it.name}: ${e.message}`, 'err'); }
-    }
-    sel.clear(); toast(`${n}개를 삭제했습니다`);
+    const ids = new Set(list.map(i => i.id));
+    bulk = true; items = items.filter(i => !ids.has(i.id)); sel.clear(); draw();
+    const t = progressToast(`삭제하는 중 0/${list.length}`);
+    const queue = [...list], fails = [];
+    let done = 0;
+    const worker = async () => {
+      while (queue.length) {
+        const it = queue.shift();
+        try {
+          await Promise.all([ms.remove(it.driveId), ms.remove(it.thumbId), ms.remove(it.previewId)]);
+          await db.remove(COL, it.id);
+          db.deleteBlob('mt:' + it.id).catch(() => {}); db.deleteBlob('mp:' + it.id).catch(() => {});
+        } catch (e) { fails.push(`${it.name}: ${e.message}`); }
+        done++; t.set(done / list.length); t.text(`삭제하는 중 ${done}/${list.length}`);
+      }
+    };
+    try { await Promise.all(Array.from({ length: Math.min(6, list.length) }, worker)); }
+    finally { t.done(); bulk = false; await load(); draw(); }
+    if (fails.length) toast(`${list.length - fails.length}개 삭제, ${fails.length}개 실패 — ${fails[0]}`, 'err');
+    else toast(`${list.length}개를 삭제했습니다`);
   }
   async function downloadItems(list) {
     let i = 0;
@@ -491,7 +526,10 @@ export async function mount(root, ctx) {
     try { await apiKey(); } catch (e) { toast(e.message, 'err'); return; }
     const todo = (list || items).filter(i => force || !i.aiDesc);
     if (!todo.length) { toast('모든 사진에 AI 설명이 있습니다'); return; }
-    if (todo.length > 5 && !await confirmBox(`${todo.length}개에 AI 설명을 만들까요? OpenAI 사용료가 조금 듭니다(사진 1장에 약 1~2원). 진행 중에 버튼을 한 번 더 누르면 멈춥니다.`, '만들기')) return;
+    // 사진 1장 ≈ 입력 450토큰(지시문+작은 사진) + 출력 150토큰, 의미 검색용 임베딩은 거의 0
+    const vm = visionModel(), one = usdOf(vm, 450, 150) + usdOf('text-embedding-3-small', 60, 0);
+    if (!await confirmCost({ provider: 'openai', model: vm, kind: 'vision', inTok: 450 * todo.length, outTok: 150 * todo.length, usd: one * todo.length, count: todo.length,
+      note: `${todo.length}장에 AI 설명을 만듭니다(1장 약 ${(one * rate()).toFixed(2)}원). 진행 중에 버튼을 한 번 더 누르면 멈춥니다.` })) return;
     aiJob = { stop: false };
     const t = progressToast('AI 설명을 만드는 중…');
     let n = 0;
@@ -541,7 +579,7 @@ export async function mount(root, ctx) {
   }
 
   // ---------- live updates ----------
-  const onChange = async e => { if (e.detail.col !== COL && e.detail.col !== 'mediaMeta') return; await load(); draw(); };
+  const onChange = async e => { if (bulk || (e.detail.col !== COL && e.detail.col !== 'mediaMeta')) return; await load(); draw(); };
   const redraw = debounce(onChange, 300);
   db.events.addEventListener('change', redraw);
   await load();
@@ -549,6 +587,8 @@ export async function mount(root, ctx) {
   setTimeout(() => searchIn.focus(), 0);
   return { open: () => {}, cleanup: () => { closeViewer(); db.events.removeEventListener('change', redraw); }, addFiles };
 }
+
+const TRASH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6.5 7l.9 11.6A1.5 1.5 0 0 0 8.9 20h6.2a1.5 1.5 0 0 0 1.5-1.4L17.5 7M10.2 11v5.2M13.8 11v5.2"/></svg>';
 
 function progressToast(text) {
   const bar = h('i');

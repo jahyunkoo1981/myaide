@@ -45,7 +45,7 @@ export async function unlock(password) {
   const k = await derive(password, unb64(meta.salt));
   try { if (await decWith(k, meta.check) !== 'myaide-ok') throw 0; }
   catch { throw new Error('비밀번호가 맞지 않습니다.'); }
-  key = k; touch();
+  key = k; autoUnlocked = false; touch();
   vaultEvents.dispatchEvent(new Event('change'));
 }
 
@@ -56,7 +56,43 @@ export async function importSession(raw) {
   vaultEvents.dispatchEvent(new Event('change'));
 }
 
-export function lock() { key = null; clearTimeout(lockTimer); vaultEvents.dispatchEvent(new Event('change')); }
+export function lock() { key = null; autoUnlocked = false; clearTimeout(lockTimer); vaultEvents.dispatchEvent(new Event('change')); }
+
+// ---------- 자동 로그인 (this device only) ----------
+// The open key is kept on this device wrapped by a device key that can never be read out of the browser
+// (non-extractable WebCrypto key in IndexedDB). Nothing leaves the device and Drive never sees it.
+// Opened this way, 계정정보 still asks for the password once (autoUnlocked).
+const DEV_KEY = 'device-wrap', DEV_BOX = 'device-session';
+export let autoUnlocked = false;
+export async function deviceRemembered() { return !!(await db.kvGet(DEV_BOX)); }
+export async function rememberDevice() {
+  if (!key) throw new Error('먼저 로그인해 주세요.');
+  let wk = await db.kvGet(DEV_KEY);
+  if (!wk) { wk = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']); await db.kvSet(DEV_KEY, wk); }
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, wk, await crypto.subtle.exportKey('raw', key));
+  await db.kvSet(DEV_BOX, { iv: b64(iv), ct: b64(ct) });
+}
+export async function forgetDevice() { await db.kvDel(DEV_BOX); await db.kvDel(DEV_KEY); }
+export async function autoUnlock() {
+  const box = await db.kvGet(DEV_BOX), wk = await db.kvGet(DEV_KEY), meta = await db.get('vault', 'main');
+  if (!box || !wk || !meta) return false;
+  try {
+    const raw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(box.iv) }, wk, unb64(box.ct));
+    const k = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+    if (await decWith(k, meta.check) !== 'myaide-ok') throw 0;   // password was changed on another device
+    key = k; autoUnlocked = true;
+    vaultEvents.dispatchEvent(new Event('change'));
+    return true;
+  } catch { await db.kvDel(DEV_BOX); return false; }
+}
+// 계정정보 on an auto-logged-in device: confirm it's really the owner.
+export async function confirmPassword(password) {
+  const meta = await db.get('vault', 'main');
+  const k = await derive(password, unb64(meta.salt));
+  try { if (await decWith(k, meta.check) !== 'myaide-ok') throw 0; } catch { throw new Error('비밀번호가 맞지 않습니다.'); }
+  autoUnlocked = false;
+}
 
 export async function seal(value) {
   if (!key) throw new Error('잠겨 있습니다. 다시 로그인해 주세요.');

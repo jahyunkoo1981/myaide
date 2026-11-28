@@ -17,6 +17,7 @@ export async function mount(root) {
     }
     if (!await vault.exists()) return drawCreate();
     if (!vault.isOpen()) return drawUnlock();
+    if (vault.autoUnlocked) return drawUnlock(true);   // auto-login device: password once before showing accounts
     drawTiles();
   };
 
@@ -36,14 +37,15 @@ export async function mount(root) {
     pw.focus();
   }
 
-  function drawUnlock() {
+  function drawUnlock(recheck) {
     const pw = h('input', { type: 'password', autocomplete: 'current-password' });
     const err = h('p', { class: 'error' });
-    const go = async () => { err.textContent = '확인 중…'; try { await vault.unlock(pw.value); draw(); } catch (e) { err.textContent = e.message; pw.select(); } };
+    const go = async () => { err.textContent = '확인 중…'; try { if (recheck) await vault.confirmPassword(pw.value); else await vault.unlock(pw.value); draw(); } catch (e) { err.textContent = e.message; pw.select(); } };
     pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     head.replaceChildren(h('h1', null, '계정정보'));
     body.replaceChildren(h('div', { class: 'gate-card', style: { maxWidth: '420px' } },
-      h('h2', { style: { margin: 0 } }, '잠겨 있습니다'),
+      h('h2', { style: { margin: 0 } }, recheck ? '본인 확인' : '잠겨 있습니다'),
+      recheck ? h('p', { class: 'hint', style: { margin: 0 } }, '자동 로그인된 기기라서 계정정보를 열 때는 비밀번호를 한 번 더 확인합니다.') : null,
       h('label', { class: 'field' }, 'MY AIDE 비밀번호', pw), err,
       h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: go }, '열기')),
       h('p', { class: 'hint' }, '비밀번호를 잊었다면 잠금 후 로그인 화면의 ‘비밀번호를 잊었어요’를 누르세요.')));

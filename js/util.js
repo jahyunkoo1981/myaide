@@ -34,6 +34,28 @@ export function uid() {
   return t + [...r].map(b => b.toString(36).padStart(2, '0')).join('').slice(0, 8);
 }
 
+// One row of a left-hand list (업무메모·지식노트·회의록·마인드맵): open on click, delete right on the row.
+const TRASH = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6.5 7l.9 11.6A1.5 1.5 0 0 0 8.9 20h6.2a1.5 1.5 0 0 0 1.5-1.4L17.5 7M10.2 11v5.2M13.8 11v5.2"/></svg>';
+export function listItem({ selected, onOpen, onDelete, date, title, sub }) {
+  const del = onDelete ? h('button', { type: 'button', class: 'li-del', title: '삭제', 'aria-label': `‘${title}’ 삭제`, html: TRASH,
+    onclick: e => { e.stopPropagation(); onDelete(); } }) : null;
+  return h('div', { class: 'list-item', role: 'button', tabindex: 0, 'aria-selected': String(!!selected), onclick: onOpen,
+    onkeydown: e => {
+      if (e.target !== e.currentTarget) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); }
+      else if (e.key === 'Delete' && onDelete) { e.preventDefault(); onDelete(); }
+    } },
+    h('div', { class: 'li-body' }, date ? h('div', { class: 'd' }, date) : null, h('div', { class: 't' }, title), sub != null ? h('div', { class: 's' }, sub || ' ') : null),
+    del);
+}
+
+// 「AI 제외」 토글: 켜면 이 글은 AIDE가 참고 자료로 AI에 보내지 않습니다.
+export function noAiButton(on, onToggle) {
+  const b = h('button', { class: 'btn small ghost noai-btn', type: 'button', title: '켜면 이 글은 AIDE 질문 때 참고 자료로 AI에 보내지 않습니다' });
+  const draw = () => { b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'AI 제외됨' : 'AI 제외'; };
+  b.onclick = async () => { on = !on; draw(); await onToggle(on); toast(on ? '이 글은 AI에 보내지 않습니다' : 'AI 참고 대상에 다시 넣었습니다'); };
+  draw(); return b;
+}
 export function debounce(fn, ms) {
   let t;
   const wrapped = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
@@ -138,6 +160,7 @@ export const icons = {
   journal: '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11M9 8h6"/>',
   notes: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h5"/>',
   devtools: '<path d="M14.5 6.5a4 4 0 0 0-5.2 5.2L4 17v3h3l5.3-5.3a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.3-.6-.6-2.3z"/>',
+  shield: '<path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9V6z"/><path d="M9 12.5h6"/>',
   code: '<path d="m8.5 8-4 4 4 4M15.5 8l4 4-4 4M13.5 5.5l-3 13"/>',
   aimd: '<path d="M4 6h16v10H9l-5 4z"/><path d="M8 10h8M8 13h5"/>',
   knowledge: '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="10" cy="18" r="2.5"/><path d="M8 7.5l7.6 1M7 8.3l2.2 7.4M16.4 10l-4.6 6.2"/>',

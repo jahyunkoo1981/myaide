@@ -1,6 +1,6 @@
 // AI 마인드맵: organise thoughts as a map. Keyboard first (Tab = 하위, Enter = 형제, F2/더블클릭 = 고치기),
 // and AI can turn free-form notes into a map, grow a branch, or summarise the map.
-import { h, uid, debounce, confirmBox, toast, dialog, download, copyText } from '../util.js';
+import { h, uid, debounce, confirmBox, toast, dialog, download, copyText, listItem } from '../util.js';
 import * as db from '../db.js';
 import { chat } from '../openai.js';
 
@@ -32,10 +32,18 @@ export async function mount(root, ctx) {
   const drawList = () => {
     const q = search.value.trim().toLowerCase();
     const shown = items.filter(i => !q || JSON.stringify(i.root || {}).toLowerCase().includes(q) || (i.title || '').toLowerCase().includes(q));
-    list.replaceChildren(...(shown.length ? shown.map(i => h('button', { class: 'list-item', 'aria-selected': String(i.id === openId), onclick: () => ctx.go('mindmap', i.id) },
-      h('div', { class: 't' }, i.title || i.root?.text || '제목 없음'),
-      h('div', { class: 's' }, (i.root?.children || []).map(c => c.text).join(' · ') || ' '))) : [h('div', { class: 'list-empty' }, q ? '검색 결과가 없습니다.' : '‘새 맵’을 만들거나, 머릿속 생각을 그대로 붙여 넣고 AI로 정리해 보세요.')]));
+    list.replaceChildren(...(shown.length ? shown.map(i => listItem({ selected: i.id === openId, onOpen: () => ctx.go('mindmap', i.id), onDelete: () => removeMap(i.id, i.title || i.root?.text),
+      title: i.title || i.root?.text || '제목 없음', sub: (i.root?.children || []).map(c => c.text).join(' · ') })) : [h('div', { class: 'list-empty' }, q ? '검색 결과가 없습니다.' : '‘새 맵’을 만들거나, 머릿속 생각을 그대로 붙여 넣고 AI로 정리해 보세요.')]));
   };
+
+  async function removeMap(id, name) {
+    if (!await confirmBox(`‘${name || '제목 없음'}’ 마인드맵을 삭제할까요?`, '삭제', true)) return;
+    const wasOpen = id === openId;
+    if (wasOpen) { commitEdit(); save.cancel(); dirty = false; map = null; }
+    await db.remove(COL, id); toast('삭제했습니다');
+    items = items.filter(i => i.id !== id);
+    if (wasOpen) ctx.go('mindmap'); else drawList();
+  }
 
   async function create(rootNode) {
     const id = uid();
@@ -46,9 +54,10 @@ export async function mount(root, ctx) {
 
   // ---------- saving ----------
   const state = h('span', { class: 'save-state' });
-  const saveNow = async () => { if (!map || !openId) return; map.title = map.root.text; await db.put(COL, openId, { title: map.title, root: map.root, createdAt: map.createdAt || Date.now() }); state.textContent = '저장됨'; };
+  let dirty = false;   // only write when something really changed (a flush after delete must not bring the map back)
+  const saveNow = async () => { if (!map || !openId || !dirty) return; dirty = false; map.title = map.root.text; await db.put(COL, openId, { title: map.title, root: map.root, createdAt: map.createdAt || Date.now() }); state.textContent = '저장됨'; };
   const save = debounce(saveNow, 600);
-  const changed = () => { state.textContent = '저장 중…'; save(); render(); };
+  const changed = () => { dirty = true; state.textContent = '저장 중…'; save(); render(); };
 
   // ---------- tree helpers ----------
   const walk = (n, fn, parent = null, depth = 0, branch = null) => { fn(n, parent, depth, branch); (n.children || []).forEach((c, i) => walk(c, fn, n, depth + 1, depth === 0 ? (c.color || BRANCH[i % BRANCH.length]) : branch)); };
@@ -235,13 +244,13 @@ export async function mount(root, ctx) {
   const TREE_RULE = '반드시 JSON 하나만 출력하세요: {"text":"...","children":[{"text":"...","children":[...]}]}. 각 text는 25자 이내 핵심어구로, 깊이는 3단계 이내, 한 가지당 하위는 2~6개로 하세요. 사용자가 말하지 않은 사실을 지어내지 말고 생각을 묶고 이름 붙이는 데 집중하세요.';
   async function busy(label, fn) {
     const t = h('div', { class: 'mm-busy' }, label); stage.append(t);
-    try { return await fn(); } catch (e) { toast(e.message, 'err'); } finally { t.remove(); }
+    try { return await fn(); } catch (e) { toast(e.message, e.cancelled ? undefined : 'err'); } finally { t.remove(); }
   }
   async function aiExpand() {
     const f = find(sel || map.root.id); if (!f) return;
     await busy('AI가 가지를 펼치는 중…', async () => {
       const out = await chat([{ role: 'system', content: '당신은 생각 정리를 돕는 코치입니다. 한국어로 답합니다. ' + TREE_RULE },
-        { role: 'user', content: `아래 마인드맵에서 「${f.n.text}」 아래에 이어질 하위 생각 3~6개를 제안하세요. 이미 있는 하위 항목과 겹치지 않게 하세요. 루트 text는 「${f.n.text}」로 두세요.\n\n${mapToText(map.root)}` }]);
+        { role: 'user', content: `아래 마인드맵에서 「${f.n.text}」 아래에 이어질 하위 생각 3~6개를 제안하세요. 이미 있는 하위 항목과 겹치지 않게 하세요. 루트 text는 「${f.n.text}」로 두세요.\n\n${mapToText(map.root)}` }], null, { kind: 'mindmap' });
       const t = parseTree(out);
       f.n.collapsed = false; f.n.children.push(...t.children);
       changed(); toast(`${t.children.length}개를 추가했습니다`);
@@ -250,7 +259,7 @@ export async function mount(root, ctx) {
   async function aiSummary() {
     await busy('AI가 정리하는 중…', async () => {
       const out = await chat([{ role: 'system', content: '당신은 생각 정리를 돕는 코치입니다. 한국어로 간결하게 답합니다.' },
-        { role: 'user', content: '이 마인드맵을 바탕으로 ①핵심 요약 3줄 ②빠진 관점이나 질문 2~3개 ③바로 할 일 3개를 정리해 주세요.\n\n' + mapToText(map.root) }]);
+        { role: 'user', content: '이 마인드맵을 바탕으로 ①핵심 요약 3줄 ②빠진 관점이나 질문 2~3개 ③바로 할 일 3개를 정리해 주세요.\n\n' + mapToText(map.root) }], null, { kind: 'mindmap', outHint: 600 });
       await dialog({ title: 'AI 정리', wide: false, body: h('div', { class: 'msg ai', style: { whiteSpace: 'pre-wrap' } }, out),
         actions: [{ label: '복사', run: () => { copyText(out); return false; } }, { label: '닫기', kind: 'primary' }] });
     });
@@ -263,9 +272,9 @@ export async function mount(root, ctx) {
     const t = h('div', { class: 'toast' }, 'AI가 생각을 정리하는 중…'); document.getElementById('toasts').append(t);
     try {
       const out = await chat([{ role: 'system', content: '당신은 생각 정리를 돕는 코치입니다. 한국어로 답합니다. 사용자의 생각 메모를 주제별로 묶어 마인드맵으로 만듭니다. 중심(root) text는 메모 전체를 대표하는 짧은 제목입니다. ' + TREE_RULE },
-        { role: 'user', content: ta.value.slice(0, 12000) }]);
+        { role: 'user', content: ta.value.slice(0, 12000) }], null, { kind: 'mindmap' });
       await create(parseTree(out));
-    } catch (e) { toast(e.message, 'err'); } finally { t.remove(); }
+    } catch (e) { toast(e.message, e.cancelled ? undefined : 'err'); } finally { t.remove(); }
   }
 
   // ---------- export ----------
@@ -324,10 +333,7 @@ export async function mount(root, ctx) {
         h('button', { class: 'btn small ghost back-btn', onclick: () => ctx.go('mindmap') }, '‹ 목록'), state, h('span', { class: 'grow' }),
         h('button', { class: 'btn small', onclick: exportPng }, 'PNG로 저장'),
         h('button', { class: 'btn small', onclick: () => copyText(mapToText(map.root), '목록 형태로 복사했습니다') }, '텍스트 복사'),
-        h('button', { class: 'btn small ghost danger', onclick: async () => {
-          if (!await confirmBox(`‘${map.root.text}’ 마인드맵을 삭제할까요?`, '삭제', true)) return;
-          save.cancel(); await db.remove(COL, id); toast('삭제했습니다'); ctx.go('mindmap');
-        } }, '삭제')),
+        h('button', { class: 'btn small ghost danger', onclick: () => removeMap(id, map.root.text) }, '삭제')),
       h('div', { class: 'toolbar mm-tools' },
         tb('+ 하위', () => addChild(), 'Tab'), tb('+ 같은 단계', addSibling, 'Enter'), tb('고치기', () => sel && edit(sel, false), 'F2 또는 더블클릭'),
         tb('접기/펴기', toggleFold, 'Space'), tb('삭제', removeSel, 'Delete'), colorBtn, sideBtn,

@@ -136,6 +136,7 @@ export async function kvGet(k, fallback = null) {
   return r ? r.v : fallback;
 }
 export async function kvSet(k, v) { await tx('kv', 'readwrite', s => s.put({ k, v })); }
+export async function kvDel(k) { await tx('kv', 'readwrite', s => s.delete(k)); }
 
 export async function wipeAll() {
   const db = await open();

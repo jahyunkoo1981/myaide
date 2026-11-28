@@ -1,4 +1,6 @@
 import { h, icon, toast, dialog, $, fmtTime } from './util.js';
+import { applyTheme } from './theme.js';
+applyTheme();
 import * as db from './db.js';
 import * as sync from './sync.js';
 import { auth, clientId, setClientId } from './auth.js';
@@ -13,6 +15,7 @@ const VIEWS = {
   notes: () => import('./views/docs.js'),
   aimd: () => import('./views/code.js'),
   devtools: () => import('./views/devtools.js'),
+  masker: () => import('./views/masker.js'),
   knowledge: () => import('./views/knowledge.js'),
   schedule: () => import('./views/schedule.js'),
   mindmap: () => import('./views/mindmap.js'),
@@ -56,16 +59,25 @@ async function boot() {
   }
 
   await passwordGate();
+  // a recording cut off by a power-off / closed window goes back into 회의록
+  if (native.available) import('./naver.js').then(m => m.startAutoSync()).catch(() => {});   // 네이버 캘린더 (Windows 앱)
+  import('./recorder.js').then(m => m.recoverAtStart(sec => toast(`끊겼던 녹음 ${Math.floor(sec / 60)}분 ${sec % 60}초를 회의록에 복구했습니다`))).catch(() => {});
   shareSession();
   renderShell();
   sync.counts();
   sync.syncNow().catch(() => {});
   setInterval(() => { if (document.visibilityState === 'visible') sync.syncNow().catch(() => {}); }, 60000);
   let hiddenAt = 0;
+  let autoLogin = !!(await db.kvGet('auto-login'));
+  vault.vaultEvents.addEventListener('change', async () => { autoLogin = !!(await db.kvGet('auto-login')); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
-    if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS) lockNow();
-    else sync.schedule(200);
+    if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS && !vault.autoUnlocked && !autoLogin) lockNow();
+    else {
+      // web: a Google token lasts an hour — on coming back, renew it quietly so the phone stays connected
+      if (mode === 'drive' && !native.available && !auth.hasToken() && auth.canTrySilent()) { auth.signIn({ silent: true }); return; }
+      sync.schedule(200);
+    }
   });
   window.addEventListener('hashchange', route);
   route();
@@ -146,9 +158,26 @@ async function passwordGate() {
     return newPasswordScreen(true);
   }
   sessionStorage.removeItem('myaide.reset');
-  if (await vault.exists()) return loginScreen();
+  if (await vault.exists()) {
+    if (await db.kvGet('auto-login') && await vault.autoUnlock()) return;   // 자동 로그인 (이 기기)
+    await loginScreen();
+    if (await db.kvGet('auto-login')) await vault.rememberDevice().catch(() => {});
+    else await offerAutoLogin();
+    return;
+  }
   if (mode === 'drive' && !sync.state.lastSync) return needSyncScreen();
   return newPasswordScreen(false);
+}
+
+// Phones/tablets: ask once whether this device should stay logged in.
+async function offerAutoLogin() {
+  if (native.available || await db.kvGet('auto-login-asked')) return;
+  if (!matchMedia('(pointer: coarse)').matches) return;
+  await db.kvSet('auto-login-asked', true);
+  const r = await dialog({ title: '이 기기에서 자동 로그인할까요?',
+    body: [h('p', null, '켜 두면 이 폰에서는 MY AIDE 비밀번호를 다시 묻지 않습니다. 계정정보를 열 때만 한 번 더 확인합니다.'), h('p', { class: 'hint' }, '설정 › 로그인에서 언제든 끌 수 있습니다.')],
+    actions: [{ label: '나중에', value: null }, { label: '자동 로그인 켜기', kind: 'primary', value: 'ok' }] });
+  if (r === 'ok') { await db.kvSet('auto-login', true); await vault.rememberDevice().catch(() => {}); toast('이 기기는 자동으로 로그인합니다'); }
 }
 
 function gate(...children) {
