@@ -78,8 +78,12 @@ const TOTAL_KEYS = ['결제금액', '승인금액', '받을금액', '청구금�
 function fixDigits(line) {   // 숫자 사이에 섞인 O/o/l/I/S 같은 오인식 바로잡기
   return line.replace(/(?<=\d)[Oo](?=\d|,)|(?<=,)[Oo]/g, '0').replace(/(?<=\d)[lI|](?=\d)/g, '1').replace(/(?<=\d)S(?=\d)/g, '5');
 }
-export function parseReceipt(text, now = new Date()) {
-  const lines = String(text || '').split(/\r?\n/).map(l => fixDigits(l.trim())).filter(Boolean);
+// opts: { now, totalKeys: 먼저 볼 합계 줄 이름(학습한 것), conf: [['B','8'], …] 숫자 오인식 }
+export function parseReceipt(text, opts = {}) {
+  if (opts instanceof Date) opts = { now: opts };
+  const now = opts.now || new Date();
+  const confFix = l => (opts.conf || []).reduce((s, [a, b]) => s.replace(new RegExp(`(?<=[\\d,])${a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[\\d,]|$)|(?<=^|\\s)${a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\d)`, 'g'), b), l);
+  const lines = String(text || '').split(/\r?\n/).map(l => fixDigits(confFix(l.trim()))).filter(Boolean);
   const flat = lines.map(l => l.replace(/\s+/g, ''));
   // 날짜
   let date = null;
@@ -91,7 +95,7 @@ export function parseReceipt(text, now = new Date()) {
   }
   // 합계
   let amount = null, why = '';
-  outer: for (const key of TOTAL_KEYS) {
+  outer: for (const key of [...(opts.totalKeys || []), ...TOTAL_KEYS]) {
     const kk = key.replace(/\s/g, '').toLowerCase();
     for (let i = 0; i < flat.length; i++) {
       if (!flat[i].toLowerCase().includes(kk)) continue;

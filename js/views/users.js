@@ -7,6 +7,18 @@ import * as L from '../license.js';
 import { unlockVaultPrompt } from '../openai.js';
 
 const COL = 'licenses';
+function parseCsv(text) {
+  const rows = []; let row = [], f = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true; else if (c === ',') { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += c;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
 
 export async function mount(root) {
   const body = h('div', { class: 'pad us', style: { maxWidth: '980px' } });
@@ -65,7 +77,71 @@ export async function mount(root) {
       h('section', { class: 'us-card' },
         h('h2', null, '사용 중지 반영 (GitHub)'),
         h('p', { class: 'hint', style: { margin: 0 } }, '사용 중지한 코드 번호를 웹에 올려야 그 사람 앱이 잠깁니다. 이메일은 올라가지 않습니다. GitHub 토큰은 처음 한 번만 넣으면 됩니다.'),
-        h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: setToken }, 'GitHub 토큰 넣기·바꾸기'), h('button', { class: 'btn small', onclick: () => publish(true) }, '지금 반영하기'))));
+        h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: setToken }, 'GitHub 토큰 넣기·바꾸기'), h('button', { class: 'btn small', onclick: () => publish(true) }, '지금 반영하기'))),
+      await communityCard());
+  }
+
+  // ---------- 영수증 공동 학습 ----------
+  async function communityCard() {
+    const cfg = (await db.get('settings', 'communityAdmin').catch(() => null)) || {};
+    const pre = h('input', { type: 'url', value: cfg.prefilled || '', placeholder: 'https://docs.google.com/forms/d/e/…/viewform?usp=pp_url&entry.123…' });
+    const csv = h('input', { type: 'url', value: cfg.csvUrl || '', placeholder: 'https://docs.google.com/spreadsheets/d/e/…/pub?output=csv' });
+    const out = h('div', { class: 'us-review' });
+    const fileIn = h('input', { type: 'file', accept: '.csv,text/csv', hidden: true, onchange: async e => { const f = e.target.files[0]; e.target.value = ''; if (f) review(await f.text()); } });
+    const connect = async () => {
+      const m = /forms\/d\/e\/([^/]+)\/viewform[^#]*?[?&](entry\.\d+)=/.exec(pre.value);
+      if (!m) { toast('미리 채운 링크에서 설문지 주소를 찾지 못했습니다. 4단계의 링크를 그대로 붙여 넣어 주세요.', 'err'); return; }
+      const { id, updatedAt, ...rest } = cfg;
+      await db.put('settings', 'communityAdmin', { ...rest, prefilled: pre.value.trim(), csvUrl: csv.value.trim() });
+      try { await L.publishJson('community.json', { formAction: `https://docs.google.com/forms/d/e/${m[1]}/formResponse`, entry: m[2] }, 'MY AIDE: 공동 학습 설문지 연결'); toast('공동 학습을 열었습니다. 사용자 앱에 1~2분 뒤 반영됩니다'); }
+      catch (e) { if (e.needToken && await setToken()) connect(); else if (!e.needToken) toast(e.message, 'err'); }
+    };
+    const load = async () => {
+      if (!csv.value.trim()) { fileIn.click(); return; }
+      try { const r = await fetch(csv.value.trim() + (csv.value.includes('?') ? '&' : '?') + 't=' + Date.now()); if (!r.ok) throw new Error(r.status); review(await r.text()); }
+      catch { toast('시트를 바로 읽지 못했습니다. 시트에서 CSV로 내려받아 파일로 넣어 주세요.', 'err'); fileIn.click(); }
+    };
+    async function review(text) {
+      const rows = parseCsv(text).slice(1).map(r => { try { return JSON.parse(r[r.length - 1]); } catch { return null; } }).filter(x => x && x.name);
+      const { norm } = await import('../ocrlearn.js');
+      const groups = new Map();
+      for (const r of rows) {
+        const k = norm(r.name); const g = groups.get(k) || { names: {}, from: new Set(), cat: {}, tk: {}, n: 0 };
+        g.n++; g.names[r.name] = (g.names[r.name] || 0) + 1; if (r.from) g.from.add(r.from);
+        if (r.cat) g.cat[r.cat] = (g.cat[r.cat] || 0) + 1; if (r.tk) g.tk[r.tk] = (g.tk[r.tk] || 0) + 1;
+        groups.set(k, g);
+      }
+      const confVotes = {}; rows.forEach(r => (r.cf || []).forEach(([a, b]) => { confVotes[a + '>' + b] = (confVotes[a + '>' + b] || 0) + 1; }));
+      const top = o => Object.entries(o).sort((a, b) => b[1] - a[1])[0];
+      const items = [...groups.entries()].map(([k, g]) => ({ k, name: top(g.names)[0], from: [...g.from], cat: top(g.cat), tk: top(g.tk), n: g.n })).sort((a, b) => b.n - a.n);
+      const checks = items.map(it => h('input', { type: 'checkbox', checked: it.n >= 2 }));
+      const confChecks = Object.entries(confVotes).map(([k, n]) => [k, n, h('input', { type: 'checkbox', checked: n >= 2 })]);
+      out.replaceChildren(...[h('p', { class: 'hint', style: { margin: 0 } }, `모인 의견 ${rows.length}건 · 가게 ${items.length}곳. 두 명 이상이 같은 내용을 보낸 것은 미리 골라 두었습니다.`),
+        items.length ? h('table', { class: 'data us-table' }, h('thead', null, h('tr', null, ...['', '가게', '잘못 읽힌 글자', '항목', '합계 줄', '건수'].map(t => h('th', null, t)))),
+          h('tbody', null, ...items.map((it, i) => h('tr', null, h('td', null, checks[i]), h('td', null, it.name), h('td', { class: 'muted' }, it.from.slice(0, 3).join(', ')),
+            h('td', null, it.cat ? `${it.cat[0]} (${it.cat[1]})` : ''), h('td', null, it.tk ? `${it.tk[0]} (${it.tk[1]})` : ''), h('td', { class: 'num' }, String(it.n)))))) : null,
+        confChecks.length ? h('div', { class: 'row' }, '숫자 오인식:', ...confChecks.map(([k, n, c]) => h('label', { class: 'check' }, c, `${k.replace('>', '→')} (${n})`))) : null,
+        items.length || confChecks.length ? h('button', { class: 'btn primary', onclick: async () => {
+          const stores = {}, keys = new Set();
+          items.forEach((it, i) => { if (!checks[i].checked) return; const v = { name: it.name, ...(it.cat ? { cat: it.cat[0] } : {}), ...(it.tk ? { totalKey: it.tk[0] } : {}) };
+            stores[it.k] = v; it.from.forEach(f => { stores[norm(f)] = v; }); if (it.tk) keys.add(it.tk[0]); });
+          const conf = confChecks.filter(([, , c]) => c.checked).map(([k]) => k.split('>'));
+          try { await L.publishJson('ocr-rules.json', { v: 1, updated: new Date().toISOString(), stores, totalKeys: [...keys], conf }, 'MY AIDE: 영수증 공통 규칙 갱신'); toast(`공통 규칙 ${Object.keys(stores).length}개를 모든 사용자에게 올렸습니다`); }
+          catch (e) { if (e.needToken) { if (await setToken()) toast('토큰을 저장했습니다. 다시 눌러 주세요'); } else toast(e.message, 'err'); }
+        } }, '고른 규칙을 모든 사용자에게 적용') : null].filter(Boolean));
+    }
+    return h('section', { class: 'us-card' },
+      h('h2', null, '영수증 공동 학습'),
+      h('p', { class: 'hint', style: { margin: 0 } }, '참여에 동의한 사용자가 고친 가게 이름·항목·합계 줄 이름이 익명으로 내 Google 설문지에 모입니다. 여기서 훑어보고 고른 것만 모든 사용자에게 적용합니다.'),
+      h('details', { open: !cfg.prefilled }, h('summary', null, '처음 한 번: 설문지 연결하기'),
+        h('ol', { class: 'hint' },
+          h('li', null, h('a', { href: 'https://forms.new', target: '_blank', rel: 'noopener' }, 'forms.new'), '에서 새 설문지를 만들고 제목을 “MY AIDE 영수증 학습”으로 정합니다.'),
+          h('li', null, '질문을 하나만 두고 종류를 ‘장문형’으로 바꿉니다. 설정에서 ‘이메일 주소 수집’은 끕니다.'),
+          h('li', null, '응답 탭 › ‘스프레드시트에 연결’을 누르고, 열린 시트에서 파일 › 공유 › 웹에 게시 › 쉼표로 구분된 값(.csv) › 게시 → 나온 주소를 아래 두 번째 칸에 넣습니다.'),
+          h('li', null, '설문지 오른쪽 위 ⋮ › ‘미리 채워진 링크 가져오기’에서 답 칸에 아무 글자(예: test)를 넣고 ‘링크 가져오기’ → 복사한 링크를 아래 첫 번째 칸에 넣습니다.')),
+        h('label', { class: 'field' }, '미리 채운 링크', pre), h('label', { class: 'field' }, '응답 시트 CSV 주소', csv),
+        h('button', { class: 'btn small primary', onclick: connect }, '연결하고 사용자에게 열기')),
+      h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: load }, '모인 의견 불러오기'), fileIn), out);
   }
 
   function showCode(x) {

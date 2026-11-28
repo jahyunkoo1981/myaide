@@ -103,15 +103,17 @@ export async function recheckRevoked() {
 
 // ---------- 관리자: 사용 중지 목록을 웹(GitHub)에 올리기 ----------
 const REPO = () => cfg().githubRepo || 'jahyunkoo1981/myaide';
-export async function publishRevoked(ids) {
+export async function publishRevoked(ids) { return publishJson('revoked.json', { ids, updated: new Date().toISOString() }, 'MY AIDE: 사용 중지 목록 갱신'); }
+// 관리자: 웹(GitHub Pages)에 JSON 파일 하나 올리기 — revoked.json, community.json, ocr-rules.json
+export async function publishJson(path, obj, message) {
   const token = await vault.getSecret('github').catch(() => null);
   if (!token) throw Object.assign(new Error('GitHub 토큰이 없습니다.'), { needToken: true });
   const h = { Authorization: 'token ' + token, Accept: 'application/vnd.github+json' };
-  const api = `https://api.github.com/repos/${REPO()}/contents/revoked.json`;
+  const api = `https://api.github.com/repos/${REPO()}/contents/${path}`;
   let sha;
   const g = await fetch(api, { headers: h });
   if (g.ok) sha = (await g.json()).sha; else if (g.status === 401) throw Object.assign(new Error('GitHub 토큰이 맞지 않습니다.'), { needToken: true });
-  const content = btoa(unescape(encodeURIComponent(JSON.stringify({ ids, updated: new Date().toISOString() }, null, 1))));
-  const r = await fetch(api, { method: 'PUT', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'MY AIDE: 사용 중지 목록 갱신', content, ...(sha ? { sha } : {}) }) });
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(obj, null, 1))));
+  const r = await fetch(api, { method: 'PUT', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ message, content, ...(sha ? { sha } : {}) }) });
   if (!r.ok) throw new Error('GitHub에 올리지 못했습니다 (' + r.status + ').');
 }

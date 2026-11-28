@@ -88,6 +88,8 @@ export async function mount(root) {
 
   async function receiptSheet(file) {
     const R = await import('../receipt.js');
+    const OL = await import('../ocrlearn.js');
+    let before = {};   // 학습 적용 전에 처음 읽은 값 (저장할 때 고친 것과 비교)
     const cats = await categories(), list = cats.expense;
     const shot = await shrinkImage(file, 1600, 0.82);   // 저장용 (data URL)
     let touched = new Set(), rawText = '';
@@ -111,7 +113,7 @@ export async function mount(root) {
       const g = f.category && list.includes(f.category) ? f.category : R.guessCategory(f.store, rawText, list);
       if (g && !touched.has('cat')) { catVal = g; drawChips(); }
       const miss = [!f.amount && '금액', !f.date && '날짜'].filter(Boolean);
-      statusText.textContent = (src === 'ai' ? 'AI가 읽었습니다' : '다 읽었습니다') + (miss.length ? ` · ${miss.join('·')}을(를) 못 찾았어요. 직접 넣어 주세요.` : ' · 맞는지 확인하고 저장하세요.');
+      statusText.textContent = (src === 'ai' ? 'AI가 읽었습니다' : '다 읽었습니다') + (f.applied && f.applied.length ? ` · 지난번에 고친 것 적용(${f.applied.join('·')})` : '') + (miss.length ? ` · ${miss.join('·')}을(를) 못 찾았어요. 직접 넣어 주세요.` : ' · 맞는지 확인하고 저장하세요.');
       status.classList.add('done'); status.classList.toggle('warn', !!miss.length);
     };
     const readLocal = async () => {
@@ -119,7 +121,11 @@ export async function mount(root) {
       try {
         rawText = await R.ocr(file, (p, label) => { bar.style.width = Math.round(p * 100) + '%'; statusText.textContent = `${label}… ${Math.round(p * 100)}%`; });
         rawBox.textContent = rawText.trim() || '(읽은 글자가 없습니다)';
-        fill(R.parseReceipt(rawText), 'local');
+        const opts = await OL.parseOptions();
+        const parsed = R.parseReceipt(rawText, opts);
+        before = { ...parsed };
+        const { fields, applied } = await OL.apply(parsed, rawText, (t, o) => R.parseReceipt(t, { ...opts, totalKeys: [...(o.totalKeys || []), ...opts.totalKeys] }));
+        fill({ ...fields, applied }, 'local');
       } catch (e2) { statusText.textContent = '글자를 읽지 못했습니다: ' + e2.message + ' — 직접 넣거나 AI로 읽어 보세요.'; status.classList.add('done', 'warn'); }
     };
     const readAI = async () => {
@@ -134,7 +140,10 @@ export async function mount(root) {
         rawText = (j.items || []).map(i => `${i.name}  ${Number(i.price || 0).toLocaleString('ko-KR')}`).join('\n');
         rawBox.textContent = [j.store, j.date, ...(rawText ? [rawText] : []), '합계 ' + (j.total || '')].filter(Boolean).join('\n');
         touched = new Set([...touched].filter(k => k === 'amount' && amount.value));   // AI 결과로 다시 채움 (직접 고친 금액은 유지)
-        fill({ amount: Number(j.total) || null, date: /^\d{4}-\d{2}-\d{2}$/.test(j.date || '') ? j.date : null, store: j.store || '', category: j.category }, 'ai');
+        const ai = { amount: Number(j.total) || null, date: /^\d{4}-\d{2}-\d{2}$/.test(j.date || '') ? j.date : null, store: j.store || '', category: j.category };
+        before = { ...before, ...ai };
+        const { fields, applied } = await OL.apply(ai, '', null);
+        fill({ ...fields, applied }, 'ai');
       } catch (e2) { statusText.textContent = e2.cancelled ? 'AI 읽기를 취소했습니다.' : 'AI로 읽지 못했습니다: ' + e2.message; status.classList.add('done', 'warn'); }
     };
     const valid = () => {
@@ -148,7 +157,18 @@ export async function mount(root) {
       const blobId = 'rcpt-' + uid();
       await db.putBlob(blobId, await (await fetch(shot)).blob(), { name: `영수증 ${date.value} ${memo.value.trim() || ''}.jpg`.replace(/\s+\.jpg$/, '.jpg') });
       await db.put('ledger', uid(), { date: date.value, kind: 'out', cat: catVal, amount: v, memo: memo.value.trim(), receipt: blobId });
-      toast(`${won(v)} 지출을 저장했습니다`);
+      // 고친 내용 기억 (다음 영수증에 자동 적용) + 동의했으면 공동 학습에 익명으로 보냄
+      let rule = null;
+      try { rule = await OL.learn(before, { store: memo.value.trim(), cat: catVal, amount: v }, rawText); } catch { }
+      toast(`${won(v)} 지출을 저장했습니다` + (rule ? ' · 고친 내용을 기억했어요' : ''));
+      if (rule) setTimeout(async () => {
+        const { prefs } = await import('../prefs.js');
+        if (prefs().ocrShare === undefined && await OL.canShare()) {
+          const yes = await confirmBox('영수증 인식을 다 같이 좋게 만들까요? 고친 가게 이름·항목·합계 줄 이름만 익명으로 보냅니다. 사진·금액·날짜·이메일은 보내지 않습니다. (설정에서 언제든 끌 수 있음)', '함께하기');
+          await OL.setShare(yes);
+        }
+        OL.contribute(rule);
+      }, 400);
       return true;
     };
     const r = await dialog({ title: '영수증으로 지출 넣기', wide: true,

@@ -10,6 +10,7 @@ import { unlockVaultPrompt, PROVIDERS, currentAi, listModels } from '../openai.j
 import { usageSection } from './usagepanel.js';
 import { privacySection } from './privacypanel.js';
 import { phoneMenuEditor } from './phonemenu.js';
+import { receiptLearnSection } from './receiptlearnpanel.js';
 import { themeMode, applyTheme } from '../theme.js';
 
 export async function mount(root) {
@@ -121,6 +122,8 @@ export async function mount(root) {
     usageSection(),
 
     privacySection(),
+
+    receiptLearnSection(),
 
     adminSection,
 
