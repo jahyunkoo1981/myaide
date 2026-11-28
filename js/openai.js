@@ -221,10 +221,21 @@ export async function chatTools(messages, tools, run, opts = {}) {
 
   if (provider === 'openai') {
     const native = msgs.slice();
+    let noEffort = false;
     for (let round = 0; round < MAX; round++) {
       const rec = await nextRec(round); pending = '';
-      const res = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-        body: JSON.stringify({ model, messages: native, ...(tools.length && round < MAX - 1 ? { tools: tools.map(t => ({ type: 'function', function: t })) } : {}) }) });
+      // gpt-5.x 등 추론 모델은 chat/completions에서 도구를 쓸 때 reasoning_effort를 'none'으로 해야 함 (OpenAI 제한)
+      const useTools = tools.length && round < MAX - 1;
+      const payload = { model, messages: native, ...(useTools ? { tools: tools.map(t => ({ type: 'function', function: t })) } : {}) };
+      if (useTools && !noEffort && /^(gpt-5|o\d)/.test(model)) payload.reasoning_effort = 'none';
+      let res = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify(payload) });
+      if (res.status === 400 && payload.reasoning_effort) {
+        const txt = await res.clone().text();
+        if (/reasoning_effort|reasoning\.effort|Unsupported value/i.test(txt)) {   // 이 모델은 'none'을 모름 → 빼고 다시
+          noEffort = true; delete payload.reasoning_effort;
+          res = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify(payload) });
+        }
+      }
       if (!res.ok) throw new Error(await failMsg(res, 'OpenAI'));
       const j = await res.json(); rec({ inTok: j.usage?.prompt_tokens, outTok: j.usage?.completion_tokens });
       const msg = j.choices?.[0]?.message || {};

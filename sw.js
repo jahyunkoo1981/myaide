@@ -1,5 +1,5 @@
 // Offline app shell: the app opens without a connection; data lives in IndexedDB, not here.
-const VERSION = 'myaide-v3.0.0';
+const VERSION = 'myaide-v3.0.1';
 const SHELL = [
   './', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest', 'manual.md',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',

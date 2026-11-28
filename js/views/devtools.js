@@ -5,7 +5,7 @@ import { native } from '../native.js';
 import * as db from '../db.js';
 import { prefs } from '../prefs.js';
 
-export const APP_VERSION = '3.0.0';
+export const APP_VERSION = '3.0.1';
 
 const API = [
   { name: 'Google Drive API v3', who: 'Google', use: '모든 기록 동기화(내 드라이브 › MY AIDE 폴더), 백업, 사진·동영상 원본·미리보기 저장', screens: '전체 · 백업 · 사진·동영상 · VisualCode(내 드라이브)', cost: '무료 (구글 계정 저장공간 사용)', scope: 'drive.file — MY AIDE가 만든 파일만 접근', link: 'https://developers.google.com/drive/api' },
