@@ -28,11 +28,12 @@ export const TABS = [
 ];
 export const FIXED = [
   { key: 'settings', label: '설정', icon: 'settings', group: 'system' },
-  { key: 'manual', label: '사용 설명서', icon: 'manual', group: 'system' }
+  { key: 'manual', label: '사용 설명서', icon: 'manual', group: 'system' },
+  { key: 'feedback', label: '의견 보내기', icon: 'feedback', group: 'system' }
 ];
 // Bottom bar on phones.
 export function groupOf(key) { const t = TABS.concat(FIXED).find(t => t.key === key); return t ? t.group : 'work'; }
-export const MOBILE_FAVORITES = ['journal', 'schedule', 'media', 'notes'];
+export const MOBILE_FAVORITES = ['journal', 'schedule', 'ledger', 'media', 'notes'];
 
 const DEFAULTS = {
   hiddenTabs: [],
@@ -49,6 +50,7 @@ const DEFAULTS = {
   aiPrices: {},
   aiMask: { on: true, words: [], contact: true, money: true, secret: true, names: false },   // AI 정보 보호
   aiGeminiPaid: false,
+  phoneTabs: ['schedule', 'ledger', 'journal', 'aide', 'media', 'notes', 'meetings', 'mindmap'],   // 폰에서 쓸 메뉴(순서대로) — 설정 › 폰 메뉴
   aiBlockRecordsOnRisk: true,           // 모델별 단가 직접 입력 {model: [입력, 출력]} USD/1M
   autoBackupDays: 1,
   keepBackups: 30

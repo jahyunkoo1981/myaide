@@ -5,7 +5,7 @@ import { native } from '../native.js';
 import * as db from '../db.js';
 import { prefs } from '../prefs.js';
 
-export const APP_VERSION = '2.7.2';
+export const APP_VERSION = '3.0.0';
 
 const API = [
   { name: 'Google Drive API v3', who: 'Google', use: '모든 기록 동기화(내 드라이브 › MY AIDE 폴더), 백업, 사진·동영상 원본·미리보기 저장', screens: '전체 · 백업 · 사진·동영상 · VisualCode(내 드라이브)', cost: '무료 (구글 계정 저장공간 사용)', scope: 'drive.file — MY AIDE가 만든 파일만 접근', link: 'https://developers.google.com/drive/api' },
@@ -24,6 +24,7 @@ const OSS = [
   { name: 'PeerJS', ver: '1.5.4', lic: 'MIT', by: 'Michelle Bu, Eric Zhang', use: 'WebRTC 연결을 쉽게 만드는 라이브러리', screens: '원격지원 (상대방 페이지 포함)', file: 'vendor/peerjs.LICENSE', link: 'https://github.com/peers/peerjs' },
   { name: 'ffmpeg.wasm (@ffmpeg/ffmpeg)', ver: '0.12.15', lic: 'MIT', by: 'ffmpegwasm', use: '브라우저 안에서 FFmpeg 실행', screens: '사진·동영상 › 동영상 편집', link: 'https://github.com/ffmpegwasm/ffmpeg.wasm' },
   { name: 'FFmpeg core (@ffmpeg/core)', ver: '0.12.10', lic: 'GPL-2.0-or-later', by: 'FFmpeg 개발자들', use: '자르기·나누기·합치기·자막·소리 끄기 (원본 화질 그대로 복사)', screens: '사진·동영상 › 동영상 편집', file: 'vendor/ffmpeg/ffmpeg-core-LICENSE.txt', link: 'https://ffmpeg.org/legal.html', note: '개인 사용은 제한 없음. 이 프로그램을 남에게 배포할 때는 FFmpeg 소스 위치를 함께 알려야 합니다.' },
+  { name: 'Tesseract.js', ver: '5.1.1 (core 5.1.1, 한글·영문 학습 데이터 4.0.0_best_int)', lic: 'Apache-2.0', by: 'Jerome Wu 외 (Tesseract OCR: Google)', use: '영수증 글자 읽기 — 기기 안에서, 인터넷·API 키 없이', screens: '가계부 (영수증 찍기)', file: 'vendor/tesseract/LICENSE.md', link: 'https://github.com/naptha/tesseract.js' },
   { name: 'ExcelJS', ver: '4.4.0', lic: 'MIT', by: 'Guyon Roche 외', use: '엑셀(xlsx) 읽기·쓰기 (서식 유지)', screens: '문서 가리기', file: 'vendor/exceljs/LICENSE', link: 'https://github.com/exceljs/exceljs' },
   { name: 'JSZip', ver: '3.10.2', lic: 'MIT (또는 GPL-3.0 중 MIT 선택)', by: 'Stuart Knightley 외', use: '워드(docx)·파워포인트(pptx) 안의 글 고치기', screens: '문서 가리기', file: 'vendor/jszip/LICENSE.markdown', link: 'https://github.com/Stuk/jszip' },
   { name: 'PDF.js', ver: '4.10.38', lic: 'Apache-2.0', by: 'Mozilla', use: 'PDF에서 글자 뽑기 (한글 글꼴 지도 포함)', screens: '문서 가리기', file: 'vendor/pdfjs/LICENSE', link: 'https://github.com/mozilla/pdf.js' },
@@ -62,6 +63,7 @@ const SCREENS = [
   ['업무일지', '서식 편집기(목록·제목·접기·목차), 프로세스 그림', 'Drive 동기화'],
   ['업무메모', '서식 편집기 + 프로세스(흐름도) 편집기', 'Drive 동기화'],
   ['AI 마인드맵', '직접 만든 마인드맵 화면', 'OpenAI Chat · Drive'],
+  ['가계부 영수증', 'Tesseract.js (기기 안 글자 인식), 선택: OpenAI 사진 이해', '기본은 없음 · AI로 읽기를 누를 때만 OpenAI'],
   ['문서 가리기', 'ExcelJS, JSZip, PDF.js, 가리기 규칙(privacy.js)', '없음 — 이 기기 안에서만 처리'],
   ['지식노트', 'Markdown 렌더러, [[문서 연결]]', 'Drive'],
   ['회의록', '녹음(MediaRecorder), 달력', 'OpenAI 받아쓰기·요약 · Drive'],

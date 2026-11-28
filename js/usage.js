@@ -209,11 +209,11 @@ function previewBox(priv) {
 }
 
 // Build an estimate for a chat call, ask, and return a finisher that records the real usage.
-export async function guardChat({ provider, model, kind = 'chat', messages, ask = true, outHint, privacy: priv, trainRisk }) {
+export async function guardChat({ provider, model, kind = 'chat', messages, ask = true, outHint, privacy: priv, trainRisk, note }) {
   const raw = estimateMessages(messages), inTok = Math.ceil(raw.tokens * await calib(provider));
   // 답변 길이: 직접 준 값 → 이 기능에서 실제로 나온 평균(쓸수록 정확) → 기본값
   const outTok = outHint ?? (await outAvg(kind)) ?? OUT_HINT[kind] ?? 700;
-  const est = { provider, model, kind, inTok, outTok, usd: usd(model, inTok, outTok), maxUsd: kind === 'vision' || kind === 'embed' ? 0 : usd(model, inTok, outTok * 4), privacy: priv || null, trainRisk: !!trainRisk };
+  const est = { provider, model, kind, inTok, outTok, usd: usd(model, inTok, outTok), maxUsd: kind === 'vision' || kind === 'embed' ? 0 : usd(model, inTok, outTok * 4), privacy: priv || null, trainRisk: !!trainRisk, note };
   if (ask && !await confirmCost(est)) throw new Cancelled();
   return (u) => {   // u: { inTok, outTok } from the reply (missing → estimate)
     const real = u && (u.inTok || u.outTok);

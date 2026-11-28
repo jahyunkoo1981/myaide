@@ -1,5 +1,6 @@
-import { h, uid, today, won, dialog, confirmBox, toast, pad2 } from '../util.js';
+import { h, uid, today, won, dialog, confirmBox, toast, pad2, shrinkImage, icon } from '../util.js';
 import * as db from '../db.js';
+import * as sync from '../sync.js';
 
 export const DEFAULT_CATS = {
   income: ['급여', '상여금', '보험금', '기타 수입'],
@@ -38,13 +39,14 @@ export async function mount(root) {
     const [y, m] = month.split('-').map(Number);
     head.replaceChildren(
       h('h1', null, `${y}년 ${m}월 가계부`),
+      h('button', { class: 'btn small primary rc-btn', onclick: () => snap() }, icon('camera'), ' 영수증 찍기'),
       h('button', { class: 'btn small ghost', 'aria-label': '이전 달', onclick: () => { month = prevYm(month); draw(); } }, '‹'),
       h('button', { class: 'btn small', onclick: () => { month = ym(new Date()); draw(); } }, '이번 달'),
       h('button', { class: 'btn small ghost', 'aria-label': '다음 달', onclick: () => { month = ym(new Date(y, m, 1)); draw(); } }, '›'),
       h('button', { class: 'btn small', onclick: editCats }, '항목 관리'),
       h('button', { class: 'btn small', onclick: () => editBudget(s.budget) }, '예산 설정'),
       h('button', { class: 'btn small', onclick: () => edit(null, 'in') }, '+ 수입'),
-      h('button', { class: 'btn small primary', onclick: () => edit(null, 'out') }, '+ 지출'));
+      h('button', { class: 'btn small', onclick: () => edit(null, 'out') }, '+ 지출'));
     // Spending more is shown in red; income changes stay neutral.
     const diff = (a, b, spending) => { const d = a - b; return d === 0 ? h('span', { class: 'd muted' }, '전월과 같음') : h('span', { class: 'd ' + (spending ? (d > 0 ? 'up' : 'down') : 'flat') }, `전월보다 ${won(Math.abs(d))} ${d > 0 ? '많음' : '적음'}`); };
     const used = s.budget ? Math.round(s.expense / s.budget * 100) : 0;
@@ -70,12 +72,110 @@ export async function mount(root) {
         s.entries.length ? h('table', { class: 'data' },
           h('thead', null, h('tr', null, h('th', null, '날짜'), h('th', null, '구분'), h('th', null, '항목'), h('th', null, '메모'), h('th', { class: 'num' }, '금액'))),
           h('tbody', null, s.entries.sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt).map(e => h('tr', { class: 'clickable', onclick: () => edit(e, e.kind) },
-            h('td', null, e.date.slice(5)), h('td', { class: e.kind === 'in' ? 'down' : '' }, e.kind === 'in' ? '수입' : '지출'), h('td', null, e.cat), h('td', { class: 'muted' }, e.memo || ''),
+            h('td', null, e.date.slice(5)), h('td', { class: e.kind === 'in' ? 'down' : '' }, e.kind === 'in' ? '수입' : '지출'), h('td', null, e.cat), h('td', { class: 'muted' }, e.receipt ? h('span', { class: 'rc-mark', title: '영수증 사진 있음' }, '🧾 ') : null, e.memo || ''),
             h('td', { class: 'num' }, (e.kind === 'in' ? '+' : '') + won(e.amount))))))
-          : h('div', { class: 'empty' }, h('b', null, '기록이 없습니다'), '‘+ 지출’로 첫 내역을 넣어 보세요.')));
+          : h('div', { class: 'empty' }, h('b', null, '기록이 없습니다'), '영수증을 찍거나 ‘+ 지출’로 첫 내역을 넣어 보세요.')));
     void cats;
   };
 
+  // ---------- 영수증 찍기 → 글자 읽기 → 칸 채우기 → 저장 ----------
+  const camIn = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true, onchange: ev => { const f = ev.target.files[0]; ev.target.value = ''; if (f) receiptSheet(f); } });
+  const albumIn = h('input', { type: 'file', accept: 'image/*', hidden: true, onchange: ev => { const f = ev.target.files[0]; ev.target.value = ''; if (f) receiptSheet(f); } });
+  root.append(camIn, albumIn,
+    h('button', { class: 'rc-fab', 'aria-label': '영수증 찍기', onclick: () => snap() }, icon('camera')));
+  if (window.__pendingReceipt) { const f = window.__pendingReceipt; window.__pendingReceipt = null; setTimeout(() => receiptSheet(f), 50); }   // 폰 홈의 '영수증 찍기'
+  function snap() { camIn.click(); import('../receipt.js').then(R => R.warm()).catch(() => {}); }
+
+  async function receiptSheet(file) {
+    const R = await import('../receipt.js');
+    const cats = await categories(), list = cats.expense;
+    const shot = await shrinkImage(file, 1600, 0.82);   // 저장용 (data URL)
+    let touched = new Set(), rawText = '';
+    const photo = h('img', { class: 'rc-photo', src: shot, alt: '영수증 사진', onclick: () => photo.classList.toggle('big') });
+    const bar = h('i'), statusText = h('span', null, '영수증 글자 읽는 중…');
+    const status = h('div', { class: 'rc-status' }, h('div', { class: 'rc-prog' }, bar), statusText);
+    const amount = h('input', { type: 'text', inputmode: 'numeric', class: 'rc-amount', placeholder: '0', 'aria-label': '금액',
+      oninput: ev => { touched.add('amount'); const v = ev.target.value.replace(/[^\d]/g, ''); ev.target.value = v ? Number(v).toLocaleString('ko-KR') : ''; } });
+    const date = h('input', { type: 'date', value: today(), oninput: () => touched.add('date') });
+    const memo = h('input', { type: 'text', placeholder: '가게 이름', oninput: () => touched.add('memo') });
+    let catVal = list.includes('기타 지출') ? '기타 지출' : list[list.length - 1];
+    const chips = h('div', { class: 'rc-cats', role: 'radiogroup', 'aria-label': '항목' });
+    const drawChips = () => chips.replaceChildren(...list.map(c => h('button', { type: 'button', class: 'rc-cat', role: 'radio', 'aria-checked': String(c === catVal), onclick: () => { catVal = c; touched.add('cat'); drawChips(); } }, c)));
+    drawChips();
+    const rawBox = h('pre', { class: 'rc-raw' });
+    const err = h('p', { class: 'error' });
+    const fill = (f, src) => {
+      if (f.amount && !touched.has('amount')) amount.value = Number(f.amount).toLocaleString('ko-KR');
+      if (f.date && !touched.has('date')) date.value = f.date;
+      if (f.store && !touched.has('memo')) memo.value = f.store;
+      const g = f.category && list.includes(f.category) ? f.category : R.guessCategory(f.store, rawText, list);
+      if (g && !touched.has('cat')) { catVal = g; drawChips(); }
+      const miss = [!f.amount && '금액', !f.date && '날짜'].filter(Boolean);
+      statusText.textContent = (src === 'ai' ? 'AI가 읽었습니다' : '다 읽었습니다') + (miss.length ? ` · ${miss.join('·')}을(를) 못 찾았어요. 직접 넣어 주세요.` : ' · 맞는지 확인하고 저장하세요.');
+      status.classList.add('done'); status.classList.toggle('warn', !!miss.length);
+    };
+    const readLocal = async () => {
+      status.classList.remove('done', 'warn'); bar.style.width = '3%'; statusText.textContent = '영수증 글자 읽는 중…';
+      try {
+        rawText = await R.ocr(file, (p, label) => { bar.style.width = Math.round(p * 100) + '%'; statusText.textContent = `${label}… ${Math.round(p * 100)}%`; });
+        rawBox.textContent = rawText.trim() || '(읽은 글자가 없습니다)';
+        fill(R.parseReceipt(rawText), 'local');
+      } catch (e2) { statusText.textContent = '글자를 읽지 못했습니다: ' + e2.message + ' — 직접 넣거나 AI로 읽어 보세요.'; status.classList.add('done', 'warn'); }
+    };
+    const readAI = async () => {
+      const { chat, visionModel } = await import('../openai.js');
+      status.classList.remove('done', 'warn'); bar.style.width = '40%'; statusText.textContent = 'AI가 영수증을 읽는 중…';
+      try {
+        const out = await chat([
+          { role: 'system', content: '영수증 사진에서 정보를 뽑습니다. 반드시 JSON 하나만 출력: {"store":"가게 이름","date":"YYYY-MM-DD 또는 null","total":최종 결제 금액 숫자,"category":"아래 목록 중 하나 또는 null","items":[{"name":"상품","price":숫자}]}. 항목 목록: ' + list.join(', ') },
+          { role: 'user', content: [{ type: 'text', text: '이 영수증을 읽어 주세요. 오늘은 ' + today() + '입니다.' }, { type: 'image_url', image_url: { url: shot, detail: 'high' } }] }
+        ], visionModel(), { kind: 'vision', ask: true, mask: false, outHint: 400 });
+        const j = JSON.parse(out.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
+        rawText = (j.items || []).map(i => `${i.name}  ${Number(i.price || 0).toLocaleString('ko-KR')}`).join('\n');
+        rawBox.textContent = [j.store, j.date, ...(rawText ? [rawText] : []), '합계 ' + (j.total || '')].filter(Boolean).join('\n');
+        touched = new Set([...touched].filter(k => k === 'amount' && amount.value));   // AI 결과로 다시 채움 (직접 고친 금액은 유지)
+        fill({ amount: Number(j.total) || null, date: /^\d{4}-\d{2}-\d{2}$/.test(j.date || '') ? j.date : null, store: j.store || '', category: j.category }, 'ai');
+      } catch (e2) { statusText.textContent = e2.cancelled ? 'AI 읽기를 취소했습니다.' : 'AI로 읽지 못했습니다: ' + e2.message; status.classList.add('done', 'warn'); }
+    };
+    const valid = () => {
+      if (!Number(amount.value.replace(/[^\d]/g, ''))) { err.textContent = '금액을 넣어 주세요.'; amount.focus(); return false; }
+      if (!date.value) { err.textContent = '날짜를 골라 주세요.'; return false; }
+      return true;
+    };
+    const save = async () => {
+      if (!valid()) return false;
+      const v = Number(amount.value.replace(/[^\d]/g, ''));
+      const blobId = 'rcpt-' + uid();
+      await db.putBlob(blobId, await (await fetch(shot)).blob(), { name: `영수증 ${date.value} ${memo.value.trim() || ''}.jpg`.replace(/\s+\.jpg$/, '.jpg') });
+      await db.put('ledger', uid(), { date: date.value, kind: 'out', cat: catVal, amount: v, memo: memo.value.trim(), receipt: blobId });
+      toast(`${won(v)} 지출을 저장했습니다`);
+      return true;
+    };
+    const r = await dialog({ title: '영수증으로 지출 넣기', wide: true,
+      body: h('div', { class: 'rc-sheet' },
+        h('div', { class: 'rc-left' }, photo, status),
+        h('div', { class: 'rc-form' },
+          h('label', { class: 'field' }, '금액 (원)', amount),
+          h('div', { class: 'grid2' }, h('label', { class: 'field' }, '날짜', date), h('label', { class: 'field' }, '가게·메모', memo)),
+          h('div', { class: 'field' }, '항목', chips),
+          h('details', { class: 'rc-details' }, h('summary', null, '읽은 글자 보기'), rawBox),
+          h('div', { class: 'row rc-tools' },
+            h('button', { type: 'button', class: 'btn small ghost', onclick: () => { albumIn.click(); } }, '앨범에서 고르기'),
+            h('button', { type: 'button', class: 'btn small', title: 'OpenAI로 더 정확하게 읽습니다 (1장 약 1원, 사진이 OpenAI로 전송됨)', onclick: readAI }, '✦ AI로 정확하게 읽기')),
+          err)),
+      actions: [{ label: '다시 찍기', run: () => { camIn.click(); return true; }, value: 'again' },
+        { label: '저장하고 다음 영수증', run: async () => { if (!valid()) return false; camIn.click(); return (await save()) ? true : false; }, value: 'next' },
+        { label: '저장', kind: 'primary', run: async () => (await save()) ? true : false, value: 'ok' }],
+      onOpen: () => { readLocal(); } });
+    if (r === 'ok' || r === 'next') draw();
+  }
+
+  function receiptThumb(id) {
+    const img = h('img', { class: 'rc-thumb', alt: '영수증 사진' });
+    const box = h('button', { type: 'button', class: 'rc-thumbbox', title: '크게 보기', onclick: () => { if (img.src) dialog({ title: '영수증', wide: true, body: h('img', { src: img.src, class: 'rc-full', alt: '영수증 사진' }), actions: [{ label: '닫기', kind: 'primary' }] }); } }, img, h('span', null, '🧾 영수증 사진'));
+    sync.getBlob(id).then(b => { img.src = URL.createObjectURL(b); }).catch(() => { box.lastChild.textContent = '영수증 사진을 불러오지 못했습니다'; });
+    return box;
+  }
   async function edit(e, kind) {
     const cats = await categories();
     const list = kind === 'in' ? cats.income : cats.expense;
@@ -88,7 +188,8 @@ export async function mount(root) {
     const err = h('p', { class: 'error' });
     const r = await dialog({
       title: (e ? '' : '새 ') + (kind === 'in' ? '수입' : '지출') + (e ? ' 수정' : ''),
-      body: [h('div', { class: 'grid2' }, h('label', { class: 'field' }, '날짜', date), h('label', { class: 'field' }, '금액 (원)', amount)), h('label', { class: 'field' }, '항목', cat), h('label', { class: 'field' }, '메모', memo), err],
+      body: [h('div', { class: 'grid2' }, h('label', { class: 'field' }, '날짜', date), h('label', { class: 'field' }, '금액 (원)', amount)), h('label', { class: 'field' }, '항목', cat), h('label', { class: 'field' }, '메모', memo),
+        e && e.receipt ? receiptThumb(e.receipt) : null, err],
       onOpen: () => amount.focus(),
       actions: [
         e ? { label: '삭제', kind: 'danger', run: async close => { if (await confirmBox('이 내역을 삭제할까요?', '삭제', true)) { await db.remove('ledger', e.id); close('x'); } return false; } } : null,
@@ -97,7 +198,7 @@ export async function mount(root) {
           const v = Number(amount.value.replace(/[^\d]/g, ''));
           if (!v) { err.textContent = '금액을 입력해 주세요.'; return false; }
           if (!date.value) { err.textContent = '날짜를 골라 주세요.'; return false; }
-          await db.put('ledger', e ? e.id : uid(), { date: date.value, kind, cat: cat.value, amount: v, memo: memo.value.trim() });
+          await db.put('ledger', e ? e.id : uid(), { date: date.value, kind, cat: cat.value, amount: v, memo: memo.value.trim(), ...(e && e.receipt ? { receipt: e.receipt } : {}) });
         } }
       ].filter(Boolean)
     });

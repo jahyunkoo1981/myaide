@@ -230,3 +230,12 @@ html[data-theme=dark] .nv-btn.err { border-color: #D6667D; color: #C88091; }
 html[data-theme=dark] .nv-btn.err .nv-n { background: #D06C85; }
 html[data-theme=dark] .mk-kind.k-pptx { color: #D6A281; }
 html[data-theme=dark] .mk-kind.k-pdf { background: #391F24; }
+html[data-theme=dark] .aide-thumb button { background: rgba(20,22,30,.7); color: #FFFFFF; }
+@media (max-width: 760px), (pointer: coarse) {
+html[data-theme=dark] .rc-fab { color: #FFFFFF; box-shadow: 0 6px 18px rgba(0,0,0,0.60); }
+}
+html[data-theme=dark] .rc-status.warn { color: #D6A281; }
+html[data-theme=dark] .rc-cat[aria-checked="true"] { color: #FFFFFF; }
+html[data-theme=dark] .ph-quick { color: #FFFFFF; }
+html[data-theme=dark] .ph-quick small { color: rgba(255,255,255,.85); }
+html[data-theme=dark] .ph-quick .ph-ico { background: rgba(29,29,29,.2); color: #FFFFFF; }

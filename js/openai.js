@@ -170,3 +170,107 @@ export async function embed(texts) {
   done({ inTok: r.usage?.prompt_tokens, outTok: 0 });
   return r.data.map(d => d.embedding);
 }
+
+// ---------- 기록 찾아보기 도구를 쓰는 대화 (AIDE) ----------
+// AI가 답하는 중에 tools 중 필요한 것을 부르면 run(name, args)로 MY AIDE에서 찾아 돌려주고, 최종 답이 나올 때까지 반복합니다.
+// 사진(image_url)도 세 회사 형식에 맞춰 보냅니다. 가리기 규칙은 보내는 글·도구 결과 모두에 적용되고, 답은 원래 단어로 되돌립니다.
+const dataUrlParts = u => { const m = /^data:([^;]+);base64,(.*)$/.exec(u || ''); return m ? { mime: m[1], data: m[2] } : null; };
+function toAnthropic(content) {
+  if (typeof content === 'string') return content;
+  return content.map(c => c.type === 'text' ? { type: 'text', text: c.text } : (() => { const p = dataUrlParts(c.image_url?.url); return p ? { type: 'image', source: { type: 'base64', media_type: p.mime, data: p.data } } : { type: 'text', text: '[사진]' }; })());
+}
+function toGemini(content) {
+  if (typeof content === 'string') return [{ text: content }];
+  return content.map(c => c.type === 'text' ? { text: c.text } : (() => { const p = dataUrlParts(c.image_url?.url); return p ? { inline_data: { mime_type: p.mime, data: p.data } } : { text: '[사진]' }; })());
+}
+const upperTypes = s => JSON.parse(JSON.stringify(s), (k, v) => k === 'type' && typeof v === 'string' ? v.toUpperCase() : v);
+
+export async function chatTools(messages, tools, run, opts = {}) {
+  if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다.');
+  const priv = opts.mask === false ? null : privacy.prepare(messages, opts.maskSession);
+  const { provider, model } = currentAi();
+  const key = await keyFor(provider);
+  const maskOut = s => priv ? privacy.maskText(s, priv.session) : s;
+  const unmaskArgs = o => { if (!priv) return o; try { return JSON.parse(privacy.unmaskText(JSON.stringify(o), priv.session)); } catch { return o; } };
+  const sum = { provider, model, kind: opts.kind || 'chat', inTok: 0, outTok: 0, usd: 0, estimated: false, rounds: 0 };
+  const calls = [];
+  let pending = '';   // 다음 회차 예상 금액용
+  const textOf = c => typeof c === 'string' ? c : (c || []).filter(x => x.type === 'text').map(x => x.text).join('\n');
+  const doTool = async (name, rawArgs) => {
+    const args = unmaskArgs(rawArgs || {});
+    let result;
+    try { result = await run(name, args); } catch (e) { result = { error: e.message }; }
+    calls.push({ name, args });
+    opts.onTool?.(name, args);
+    const out = maskOut(JSON.stringify(result)).slice(0, 30000);
+    pending += out;
+    return out;
+  };
+  const guard = async (round, msgsForEstimate) => {
+    const done = await guardChat({ provider, model, kind: sum.kind, messages: msgsForEstimate, privacy: round === 0 ? priv : null, trainRisk: round === 0 && privacy.trainRisk(provider),
+      ask: round === 0 ? opts.ask : false, outHint: round === 0 ? undefined : 400, note: round === 0 && tools.length ? '필요하면 AI가 MY AIDE 기록을 찾아 읽느라 몇 번 더 주고받아서, 실제 금액은 이보다 2~4배 늘 수 있습니다.' : undefined });
+    return u => { const e = done(u); sum.inTok += e.inTok; sum.outTok += e.outTok; sum.usd += e.usd; sum.estimated ||= e.estimated; sum.rounds++; };
+  };
+  const finish = text => { opts.onUsage?.({ ...sum }); if (priv) opts.onPrivacy?.(priv.info); opts.onCalls?.(calls); return priv ? priv.unmask(text) : text; };
+  const MAX = 8;
+  const rec0 = await guard(0, priv ? priv.messages : messages);   // 확인 창(더 가리기 포함)을 먼저 거친 뒤 보낼 내용을 만듦
+  const nextRec = round => round === 0 ? rec0 : guard(round, [{ role: 'user', content: pending }]);
+  let msgs = priv ? withNote(priv) : messages;
+  const system = msgs.filter(x => x.role === 'system').map(x => textOf(x.content)).join('\n\n');
+  const turns = msgs.filter(x => x.role !== 'system');
+
+  if (provider === 'openai') {
+    const native = msgs.slice();
+    for (let round = 0; round < MAX; round++) {
+      const rec = await nextRec(round); pending = '';
+      const res = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+        body: JSON.stringify({ model, messages: native, ...(tools.length && round < MAX - 1 ? { tools: tools.map(t => ({ type: 'function', function: t })) } : {}) }) });
+      if (!res.ok) throw new Error(await failMsg(res, 'OpenAI'));
+      const j = await res.json(); rec({ inTok: j.usage?.prompt_tokens, outTok: j.usage?.completion_tokens });
+      const msg = j.choices?.[0]?.message || {};
+      if (!msg.tool_calls?.length) return finish(msg.content || '');
+      native.push(msg);
+      for (const tc of msg.tool_calls) {
+        let a = {}; try { a = JSON.parse(tc.function.arguments || '{}'); } catch { }
+        native.push({ role: 'tool', tool_call_id: tc.id, content: await doTool(tc.function.name, a) });
+      }
+    }
+  } else if (provider === 'anthropic') {
+    const native = turns.map(x => ({ role: x.role === 'assistant' ? 'assistant' : 'user', content: toAnthropic(x.content) }));
+    for (let round = 0; round < MAX; round++) {
+      const rec = await nextRec(round); pending = '';
+      const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model, max_tokens: 8000, ...(system ? { system } : {}), messages: native, ...(tools.length && round < MAX - 1 ? { tools: tools.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters })) } : {}) }) });
+      if (!res.ok) throw new Error(await failMsg(res, 'Claude'));
+      const j = await res.json(), u = j.usage || {};
+      rec({ inTok: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0), outTok: u.output_tokens });
+      const uses = (j.content || []).filter(b => b.type === 'tool_use');
+      if (!uses.length) return finish((j.content || []).filter(b => b.type === 'text').map(b => b.text).join(''));
+      native.push({ role: 'assistant', content: j.content });
+      const results = [];
+      for (const b of uses) results.push({ type: 'tool_result', tool_use_id: b.id, content: await doTool(b.name, b.input) });
+      native.push({ role: 'user', content: results });
+    }
+  } else {
+    const contents = turns.map(x => ({ role: x.role === 'assistant' ? 'model' : 'user', parts: toGemini(x.content) }));
+    for (let round = 0; round < MAX; round++) {
+      const rec = await nextRec(round); pending = '';
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({ ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), contents,
+          ...(tools.length && round < MAX - 1 ? { tools: [{ functionDeclarations: tools.map(t => ({ name: t.name, description: t.description, parameters: upperTypes(t.parameters) })) }] } : {}) }) });
+      if (!res.ok) throw new Error(await failMsg(res, 'Gemini'));
+      const j = await res.json(), u = j.usageMetadata || {};
+      rec({ inTok: u.promptTokenCount, outTok: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) });
+      const cand = j.candidates?.[0]?.content || { role: 'model', parts: [] };
+      const fcs = (cand.parts || []).filter(p => p.functionCall);
+      if (!fcs.length) return finish((cand.parts || []).map(p => p.text || '').join(''));
+      contents.push({ role: 'model', parts: cand.parts });
+      const parts = [];
+      for (const p of fcs) parts.push({ functionResponse: { name: p.functionCall.name, response: { result: await doTool(p.functionCall.name, p.functionCall.args) } } });
+      contents.push({ role: 'user', parts });
+    }
+  }
+  return finish('기록을 찾다가 너무 길어져서 멈췄습니다. 질문을 조금 좁혀서 다시 물어봐 주세요.');
+}

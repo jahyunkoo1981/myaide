@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MY AIDE 받기</title>
+<link rel="icon" href="icons/icon.svg">
+<style>
+  :root { --ink: #262A3B; --ink2: #565C72; --ink3: #8D92A6; --pen: #6B74D6; --soft: #EEF0FD; --rule: #E3E5EE; --fog: #F3F4F9; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Pretendard", -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: var(--ink); background: var(--fog); line-height: 1.65; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px 64px; display: grid; gap: 18px; }
+  header { display: flex; align-items: center; gap: 14px; }
+  header img { width: 56px; height: 56px; }
+  h1 { font-size: 30px; margin: 0; letter-spacing: -.03em; }
+  .sub { color: var(--ink2); margin: 2px 0 0; }
+  .card { background: #fff; border: 1px solid var(--rule); border-radius: 18px; padding: 22px 22px; display: grid; gap: 10px; }
+  .card h2 { margin: 0; font-size: 19px; }
+  .card p, .card li { margin: 0; color: var(--ink2); }
+  ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 22px; border-radius: 14px; background: var(--pen); color: #fff; font-weight: 700; font-size: 17px; text-decoration: none; }
+  .btn.ghost { background: var(--soft); color: var(--pen); }
+  .meta { font-size: 14px; color: var(--ink3); }
+  .warn { background: #FFF6EA; border-color: #F2D2B4; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 640px) { .two { grid-template-columns: 1fr; } h1 { font-size: 26px; } }
+  code { background: var(--fog); padding: 1px 6px; border-radius: 6px; }
+  footer { font-size: 13px; color: var(--ink3); text-align: center; }
+  footer a { color: var(--ink3); }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="icons/icon.svg" alt=""><div><h1>MY AIDE</h1><p class="sub">업무일지·메모·일정·가계부·회의록을 한곳에서. 내 기록은 내 Google Drive에만.</p></div></header>
+
+  <div class="two">
+    <section class="card">
+      <h2>폰·태블릿</h2>
+      <p>설치 없이 바로 씁니다. 아이폰은 Safari, 안드로이드는 Chrome으로 여세요.</p>
+      <a class="btn" href="./">MY AIDE 열기</a>
+      <p class="meta">열린 뒤 공유 버튼 › <b>홈 화면에 추가</b>를 누르면 앱처럼 쓸 수 있어요.</p>
+    </section>
+    <section class="card">
+      <h2>Windows PC</h2>
+      <p>화면 캡처·PC 파일 찾기·바탕화면 위젯·네이버 캘린더 연동까지 됩니다.</p>
+      <a class="btn" id="dl" href="https://github.com/jahyunkoo1981/myaide/releases/latest/download/MY-AIDE.exe">Windows 앱 받기</a>
+      <p class="meta" id="ver">Windows 10·11 (64비트)</p>
+    </section>
+  </div>
+
+  <section class="card warn">
+    <h2>Windows에서 처음 실행할 때</h2>
+    <ol>
+      <li>받은 <code>MY-AIDE.exe</code>를 두 번 누릅니다.</li>
+      <li>파란 창 <b>“Windows의 PC 보호”</b>가 나오면 <b>추가 정보</b> › <b>실행</b>을 누릅니다. 개인이 만든 프로그램이라 유료 인증서가 없어서 나오는 안내입니다.</li>
+      <li><b>“MY AIDE를 이 PC에 설치할까요?”</b>에서 <b>예</b>를 누르면 시작 메뉴와 바탕화면에 바로가기가 생깁니다. 관리자 권한은 필요 없어요.</li>
+      <li>새 버전이 나오면 MY AIDE가 알려 주고, 버튼 한 번으로 업데이트됩니다.</li>
+      <li>지우려면 Windows <b>설정 › 앱</b>에서 MY AIDE를 제거하세요. Google Drive의 기록은 남습니다.</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>처음 시작하기</h2>
+    <ol>
+      <li><b>Google Drive에 저장</b>을 누르고 내 Google 계정으로 로그인합니다.</li>
+      <li>MY AIDE 비밀번호를 정합니다. 모든 기기에서 같은 비밀번호를 씁니다.</li>
+      <li>처음 쓰는 분은 <b>사용 승인 요청</b>을 보내고, 관리자에게 받은 <b>승인 코드</b>를 넣습니다.</li>
+      <li>안내에 따라 폰 메뉴와 AI 연결(선택)을 고르면 끝입니다.</li>
+    </ol>
+  </section>
+
+  <footer><a href="privacy.html">개인정보처리방침</a> · 기록은 사용자 본인의 Google Drive에만 저장되며 개발자는 수집하지 않습니다.</footer>
+</main>
+<script>
+fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(v => {
+  if (!v) return;
+  document.getElementById('ver').textContent = `버전 ${v.version} · ${v.date}${v.sizeMB ? ' · ' + v.sizeMB + 'MB' : ''} · Windows 10·11 (64비트)`;
+  if (v.url) document.getElementById('dl').href = v.url;
+}).catch(() => {});
+</script>
+</body>
+</html>

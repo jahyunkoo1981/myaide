@@ -1,11 +1,11 @@
 // Offline app shell: the app opens without a connection; data lives in IndexedDB, not here.
-const VERSION = 'myaide-v2.7.4';
+const VERSION = 'myaide-v3.0.0';
 const SHELL = [
   './', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest', 'manual.md',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/korean-lunar-calendar.mjs',
   'js/main.js', 'js/util.js', 'js/db.js', 'js/native.js', 'js/auth.js', 'js/backends.js', 'js/sync.js', 'js/vault.js',
-  'js/prefs.js', 'js/conflicts.js', 'js/capture.js', 'js/editor.js', 'js/outline.js', 'js/naver.js', 'js/recorder.js', 'js/theme.js', 'dark.css', 'js/views/code.js', 'js/views/devtools.js', 'js/inkpad.js', 'js/imageeditor.js', 'js/lunar.js', 'js/md.js', 'js/openai.js', 'js/usage.js', 'js/views/usagepanel.js', 'js/privacy.js', 'js/views/privacypanel.js', 'js/views/masker.js',
+  'js/prefs.js', 'js/conflicts.js', 'js/capture.js', 'js/editor.js', 'js/outline.js', 'js/naver.js', 'js/recorder.js', 'js/theme.js', 'dark.css', 'js/views/code.js', 'js/views/devtools.js', 'js/inkpad.js', 'js/imageeditor.js', 'js/lunar.js', 'js/md.js', 'js/openai.js', 'js/usage.js', 'js/views/usagepanel.js', 'js/privacy.js', 'js/views/privacypanel.js', 'js/views/masker.js', 'js/recordtools.js', 'js/receipt.js', 'js/license.js', 'js/views/users.js', 'js/views/home.js', 'js/views/phonemenu.js', 'js/views/feedback.js', 'js/views/onboarding.js', 'js/receipt.js',
   'js/views/journal.js', 'js/views/docs.js', 'js/views/knowledge.js', 'js/views/schedule.js', 'js/views/milestones.js',
   'js/views/ledger.js', 'js/views/accounts.js', 'js/views/meetings.js', 'js/views/aide.js', 'js/views/search.js', 'privacy.html',
   'js/views/remote.js', 'js/views/backup.js', 'js/views/settings.js', 'js/views/manual.js',

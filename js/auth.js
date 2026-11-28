@@ -3,7 +3,8 @@
 // Windows app: the app signs in through the system browser and hands tokens over the bridge.
 import { native } from './native.js';
 
-const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+// drive.file: MY AIDE가 만든 파일만 · openid email: 사용 승인 확인용 이메일 (둘 다 민감하지 않은 권한)
+const SCOPE = 'https://www.googleapis.com/auth/drive.file openid email';
 const TOKEN_KEY = 'myaide.token';
 const CLIENT_KEY = 'myaide.clientId';
 

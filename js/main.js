@@ -16,6 +16,9 @@ const VIEWS = {
   aimd: () => import('./views/code.js'),
   devtools: () => import('./views/devtools.js'),
   masker: () => import('./views/masker.js'),
+  users: () => import('./views/users.js'),
+  home: () => import('./views/home.js'),
+  feedback: () => import('./views/feedback.js'),
   knowledge: () => import('./views/knowledge.js'),
   schedule: () => import('./views/schedule.js'),
   mindmap: () => import('./views/mindmap.js'),
@@ -59,6 +62,7 @@ async function boot() {
   }
 
   await passwordGate();
+  await licenseGate();
   // a recording cut off by a power-off / closed window goes back into 회의록
   if (native.available) import('./naver.js').then(m => m.startAutoSync()).catch(() => {});   // 네이버 캘린더 (Windows 앱)
   import('./recorder.js').then(m => m.recoverAtStart(sec => toast(`끊겼던 녹음 ${Math.floor(sec / 60)}분 ${sec % 60}초를 회의록에 복구했습니다`))).catch(() => {});
@@ -88,6 +92,26 @@ async function boot() {
     native.on('capture', d => import('./capture.js').then(m => m.openCapture(d)));
   }
   maybeAutoBackup();
+  setTimeout(() => import('./views/onboarding.js').then(m => m.maybeOnboard()).catch(() => {}), 800);   // 처음 쓰는 사람 안내
+  if (native.available) setTimeout(checkUpdate, 8000);
+}
+
+// Windows 앱: 새 배포본이 있으면 알림 (웹앱은 서비스 워커가 알아서 새로 받음)
+const newer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+async function checkUpdate() {
+  try {
+    const C = window.MYAIDE_CONFIG || {};
+    const r = await fetch((C.publicUrl || '') + 'version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const v = await r.json(), me = await native.call('app.version');
+    if (!v.version || !newer(v.version, me.version) || localStorage.getItem('myaide.skipVersion') === v.version) return;
+    const a = await dialog({ title: `새 버전 ${v.version}이 나왔습니다`, body: [h('p', { style: { margin: 0 } }, v.notes || ''), h('p', { class: 'hint' }, `지금 버전 ${me.version}${v.sizeMB ? ` · 받을 크기 약 ${v.sizeMB}MB` : ''}. 업데이트해도 기록은 그대로입니다.`)],
+      actions: [{ label: '이 버전 건너뛰기', value: 'skip' }, { label: '나중에' }, { label: me.installed ? '지금 업데이트' : '내려받기', kind: 'primary', value: 'go' }] });
+    if (a === 'skip') localStorage.setItem('myaide.skipVersion', v.version);
+    if (a !== 'go') return;
+    if (me.installed) { toast('새 버전을 내려받는 중입니다. 다 받으면 MY AIDE가 잠깐 닫혔다 다시 열립니다'); await native.call('app.update', { url: v.url }); }
+    else window.open((C.publicUrl || '') + 'download.html', '_blank');
+  } catch { }
 }
 
 // First run on this device: where to keep the data.
@@ -178,6 +202,53 @@ async function offerAutoLogin() {
     body: [h('p', null, '켜 두면 이 폰에서는 MY AIDE 비밀번호를 다시 묻지 않습니다. 계정정보를 열 때만 한 번 더 확인합니다.'), h('p', { class: 'hint' }, '설정 › 로그인에서 언제든 끌 수 있습니다.')],
     actions: [{ label: '나중에', value: null }, { label: '자동 로그인 켜기', kind: 'primary', value: 'ok' }] });
   if (r === 'ok') { await db.kvSet('auto-login', true); await vault.rememberDevice().catch(() => {}); toast('이 기기는 자동으로 로그인합니다'); }
+}
+
+// ---------- 사용 승인 (관리자가 승인한 사람만) ----------
+async function licenseGate() {
+  const L = await import('./license.js');
+  if (!L.enabled()) return;
+  let r = await L.check();
+  if (r.ok) { setInterval(async () => { if (navigator.onLine && !(await L.recheckRevoked())) location.reload(); }, 6 * 3600 * 1000); return; }
+  const C = window.MYAIDE_CONFIG || {};
+  await new Promise(resolve => {
+    const email = h('input', { type: 'email', value: r.email || '', placeholder: 'Google 이메일', readOnly: !!r.email });
+    const name = h('input', { type: 'text', placeholder: '이름 (예: 홍길동)' });
+    const code = h('textarea', { rows: 3, placeholder: 'MYAIDE-로 시작하는 승인 코드를 붙여 넣으세요' });
+    const err = h('p', { class: 'error' });
+    const msg = { none: '처음 오셨네요. MY AIDE는 관리자가 승인한 분만 쓸 수 있습니다. 아래에서 승인을 요청하고, 받은 승인 코드를 넣어 주세요.',
+      bad: '저장된 승인 코드가 올바르지 않습니다. 승인 코드를 다시 받아 넣어 주세요.',
+      email: `이 승인 코드는 ${r.info?.e || '다른 계정'} 용입니다. 지금 로그인한 Google 계정(${r.email})용 코드를 받아 주세요.`,
+      revoked: '관리자가 이 계정의 사용을 중지했습니다. 기록은 내 Google Drive에 그대로 남아 있습니다. 다시 쓰려면 관리자에게 문의하세요.' }[r.reason];
+    const reqText = () => `[MY AIDE 사용 승인 요청]\n이름: ${name.value.trim() || '(이름)'}\nGoogle 이메일: ${email.value.trim() || '(이메일)'}\n기기: ${native.available ? 'Windows 앱' : /iPhone|Android/.test(navigator.userAgent) ? '폰' : '브라우저'}`;
+    const request = async () => {
+      if (!email.value.trim() || !name.value.trim()) { err.textContent = '이름과 이메일을 넣어 주세요.'; return; }
+      const text = reqText();
+      if (navigator.share && /iPhone|iPad|Android/.test(navigator.userAgent)) { try { await navigator.share({ title: 'MY AIDE 사용 승인 요청', text }); return; } catch { } }
+      if (C.adminEmail) location.href = `mailto:${C.adminEmail}?subject=${encodeURIComponent('MY AIDE 사용 승인 요청')}&body=${encodeURIComponent(text)}`;
+      else { await navigator.clipboard?.writeText(text).catch(() => {}); err.textContent = ''; toast('요청 내용을 복사했습니다. 관리자에게 카톡·메일로 보내 주세요'); }
+    };
+    const apply = async () => {
+      err.textContent = '';
+      try {
+        const info = await L.verify(code.value);
+        const me = (email.value || '').trim().toLowerCase();
+        if (me && info.e && info.e !== me) { err.textContent = `이 코드는 ${info.e} 용입니다. 지금 계정(${me})용 코드를 받아 주세요.`; return; }
+        await L.save(code.value.replace(/\s+/g, ''), info);
+        const again = await L.check();
+        if (!again.ok) { err.textContent = again.reason === 'revoked' ? '이 코드는 사용이 중지되었습니다.' : '승인을 확인하지 못했습니다.'; return; }
+        toast(`${info.n || ''}님, 승인되었습니다`); resolve();
+      } catch (e) { err.textContent = e.message; }
+    };
+    gate(h('p', { class: 'lead' }, msg),
+      r.reason !== 'revoked' ? h('div', { class: 'lic-step' }, h('b', null, '1. 승인 요청 보내기'),
+        h('label', { class: 'field' }, '이름', name), h('label', { class: 'field' }, 'Google 이메일', email),
+        h('button', { class: 'btn', onclick: request }, C.adminEmail ? '승인 요청 보내기' : '요청 내용 복사')) : null,
+      h('div', { class: 'lic-step' }, h('b', null, (r.reason !== 'revoked' ? '2. ' : '') + '승인 코드 넣기'), code,
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: apply }, '확인'), h('span', { class: 'grow' }),
+          mode === 'drive' ? h('button', { class: 'btn small ghost', onclick: async () => { await auth.signOut(); vault.lock(); location.reload(); } }, '다른 Google 계정으로') : null)),
+      err);
+  });
 }
 
 function gate(...children) {
@@ -310,6 +381,9 @@ async function bootWidget(key) {
 }
 
 // ---------- shell ----------
+// 폰: 설정 › 폰 메뉴에서 고른 메뉴만 (기준정보, 모든 기기 공통으로 Drive에 저장)
+const isPhone = () => matchMedia('(max-width: 760px)').matches;
+const phoneTabs = () => (prefs().phoneTabs || []).map(k => TABS.find(t => t.key === k)).filter(Boolean);
 function visibleTabs() {
   const hidden = new Set(prefs().hiddenTabs || []);
   return TABS.filter(t => !hidden.has(t.key));
@@ -338,9 +412,10 @@ function renderShell() {
       const items = tabs.filter(t => t.group === g.key);
       return items.length ? h('div', { class: 'nav-group nav-' + g.key }, h('div', { class: 'nav-label' }, g.label), ...items.map(navBtn)) : null;
     }).filter(Boolean));
-    const vis = new Set(visibleTabs().map(t => t.key));
-    const fav = MOBILE_FAVORITES.filter(k => vis.has(k)).map(k => TABS.find(t => t.key === k));
-    bar.replaceChildren(...fav.map(t => h('button', { 'data-key': t.key, onclick: () => go(t.key) }, icon(t.icon), t.label)),
+    // 폰 아래 막대: 홈 + 폰 메뉴 앞의 3개 + 전체
+    const fav = phoneTabs().slice(0, 3);
+    bar.replaceChildren(h('button', { 'data-key': 'home', onclick: () => go('home') }, icon('home'), '홈'),
+      ...fav.map(t => h('button', { 'data-key': t.key, onclick: () => go(t.key) }, icon(t.icon), t.label)),
       h('button', { 'data-key': '_more', onclick: moreSheet }, icon('more'), '전체'));
     markCurrent();
   };
@@ -378,7 +453,7 @@ async function onPill() {
 }
 
 async function moreSheet() {
-  const tabs = visibleTabs().concat(FIXED);
+  const tabs = (isPhone() ? phoneTabs() : visibleTabs()).concat(FIXED);
   await dialog({
     title: '전체 메뉴',
     body: h('div', { class: 'nav' }, h('div', { class: 'row', style: { justifyContent: 'flex-end', marginBottom: '4px' } },
@@ -409,7 +484,18 @@ async function route() {
   let [, key0, param] = (location.hash.match(/^#\/([^/]+)(?:\/(.+))?/) || []);
   key0 = ALIASES[key0] || key0;
   const wk = document.body.classList.contains('widget') ? new URLSearchParams(location.search).get('widget') : null;
-  const key = wk ? (ALIASES[wk] || wk) : VIEWS[key0] ? key0 : (visibleTabs()[0] || TABS[0]).key;
+  let key = wk ? (ALIASES[wk] || wk) : VIEWS[key0] ? key0 : isPhone() ? 'home' : (visibleTabs()[0] || TABS[0]).key;
+  // 폰에서 폰 메뉴에 없는 메뉴를 열면 안내
+  if (!wk && isPhone() && TABS.some(t => t.key === key) && !phoneTabs().some(t => t.key === key)) {
+    const t = TABS.find(x => x.key === key), main = $('#main');
+    if (current.cleanup) try { current.cleanup(); } catch {}
+    current = { key: '_blocked', cleanup: null, instance: null };
+    if (main) main.replaceChildren(h('div', { class: 'pad' }, h('div', { class: 'empty' }, h('b', null, `‘${t.label}’은(는) 폰 메뉴에 없습니다`), '설정 › 폰 메뉴에서 넣으면 폰에서도 쓸 수 있습니다.',
+      h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '10px' } },
+        h('button', { class: 'btn primary', onclick: async () => { const { save } = await import('./prefs.js'); await save({ phoneTabs: [...(prefs().phoneTabs || []), key] }); route(); } }, '폰 메뉴에 넣기'),
+        h('button', { class: 'btn', onclick: () => go('home') }, '홈으로')))));
+    return;
+  }
   if (wk && key0 && key0 !== key) param = null;
   const main = $('#main');
   if (!main) return;

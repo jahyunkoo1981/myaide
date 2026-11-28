@@ -9,6 +9,7 @@ import * as sync from '../sync.js';
 import { unlockVaultPrompt, PROVIDERS, currentAi, listModels } from '../openai.js';
 import { usageSection } from './usagepanel.js';
 import { privacySection } from './privacypanel.js';
+import { phoneMenuEditor } from './phonemenu.js';
 import { themeMode, applyTheme } from '../theme.js';
 
 export async function mount(root) {
@@ -80,11 +81,20 @@ export async function mount(root) {
   const themeCard = (mode, label, sub) => h('button', { type: 'button', class: 'theme-card t-' + mode, 'aria-pressed': String(themeMode() === mode), onclick: e => {
     applyTheme(mode); e.currentTarget.parentElement.querySelectorAll('.theme-card').forEach(b => b.setAttribute('aria-pressed', String(b === e.currentTarget)));
   } }, h('span', { class: 'theme-prev' }, h('i'), h('i'), h('i')), h('b', null, label), h('span', null, sub));
+  // 관리자: 사용자 승인 관리 (관리자 키가 있거나, 아직 승인 확인을 켜지 않은 경우에만 보임)
+  const L = await import('../license.js');
+  const adminSection = (await L.isAdmin()) || !L.enabled() ? h('section', null, h('h2', null, '관리자'),
+    h('p', { class: 'hint', style: { margin: 0 } }, L.enabled() ? '승인한 사용자 목록을 보고, 승인 코드를 만들거나 사용을 중지합니다.' : '다른 사람이 쓰게 하려면 사용자 관리에서 관리자 키를 만들어 승인 확인을 켜세요. 켜기 전에는 누구나 쓸 수 있습니다.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn small primary', onclick: () => location.hash = '#/users' }, '사용자 관리 열기'))) : null;
+
   body.append(...[
     h('section', null, h('h2', null, '화면 테마'),
       h('div', { class: 'theme-cards' }, themeCard('light', '화이트', '밝은 화면'), themeCard('dark', '다크', '어두운 화면, 밤에 편함'), themeCard('system', '시스템 설정', 'PC·폰 설정을 따라 자동')),
       h('p', { class: 'hint' }, '이 기기에만 적용됩니다. PC는 화이트, 폰은 다크처럼 기기마다 다르게 쓸 수 있습니다.')),
-    h('section', null, h('h2', null, '사용할 탭'), GROUPS.filter(g => TABS.some(t => t.group === g.key)).map(g => h('div', null, h('div', { class: 'nav-label', style: { padding: '0 0 4px' } }, g.label), h('div', { class: 'checks' }, tabChecks.filter((_, i) => TABS[i].group === g.key)))),
+    (() => { const ed = phoneMenuEditor(); return h('section', null, h('h2', null, '폰 메뉴'),
+      h('p', { class: 'hint', style: { margin: 0 } }, '폰에서는 여기서 고른 메뉴만 큰 타일로 나옵니다. 위에서부터 홈 화면 순서이고, 앞의 3개는 아래 막대에도 들어갑니다. 모든 기기에 같이 적용됩니다.'),
+      ed.el, h('div', { class: 'row' }, h('button', { class: 'btn small primary', onclick: ed.save }, '폰 메뉴 저장'))); })(),
+    h('section', null, h('h2', null, '사용할 탭 (PC·태블릿)'), GROUPS.filter(g => TABS.some(t => t.group === g.key)).map(g => h('div', null, h('div', { class: 'nav-label', style: { padding: '0 0 4px' } }, g.label), h('div', { class: 'checks' }, tabChecks.filter((_, i) => TABS[i].group === g.key)))),
       h('div', { class: 'row' }, h('button', { class: 'btn small primary', onclick: saveTabs }, '탭 설정 저장')),
       h('p', { class: 'hint' }, '숨긴 탭의 기록은 지워지지 않습니다.')),
 
@@ -111,6 +121,8 @@ export async function mount(root) {
     usageSection(),
 
     privacySection(),
+
+    adminSection,
 
     h('section', null, h('h2', null, '비밀번호'),
       h('p', { class: 'hint', style: { margin: 0 } }, 'MY AIDE에 로그인하는 비밀번호입니다. 모든 기기에서 같은 비밀번호를 쓰고, 계정정보와 API 키는 이 비밀번호로 암호화됩니다.'),
