@@ -1,4 +1,4 @@
-// 사진·동영상: originals kept as-is in Google Drive, browsed by day / month / year, folders and themes,
+// 사진보관함: originals kept as-is in Google Drive, browsed by day / month / year, folders and themes,
 // duplicate check, fast index search and AI (meaning-based) search, plus the video editor.
 import { h, uid, toast, confirmBox, promptBox, dialog, download, blobToDataUrl, icon, debounce, pad2 } from '../util.js';
 import * as db from '../db.js';
@@ -48,6 +48,8 @@ const cosine = (a, b) => { let d = 0, x = 0, y = 0; for (let i = 0; i < a.length
 export async function mount(root, ctx) {
   let items = [], meta = { folders: [], themes: [] };
   const f = { view: 'day', type: 'all', folder: null, theme: null, fav: false, month: null, q: '', ai: false };
+  const themeParam = p => (typeof p === 'string' && p.startsWith('theme:')) ? p.slice(6) : null;   // 다른 화면에서 '#농구' 같은 테마로 열기
+  if (themeParam(ctx.param)) f.theme = themeParam(ctx.param);
   let sel = new Set(), shownLimit = PAGE, aiRank = null;
 
   const load = async () => {
@@ -60,7 +62,7 @@ export async function mount(root, ctx) {
 
   // ---------- layout ----------
   const side = h('aside', { class: 'md-side' });
-  const searchIn = h('input', { type: 'search', placeholder: '사진 검색 — 예: 바다, 2025-08, 생일, 아이폰', 'aria-label': '사진·동영상 검색' });
+  const searchIn = h('input', { type: 'search', placeholder: '사진 검색 — 예: 바다, 2025-08, 생일, 아이폰', 'aria-label': '사진보관함 검색' });
   const aiChk = h('input', { type: 'checkbox' });
   const fileIn = h('input', { type: 'file', multiple: true, accept: 'image/*,video/*,.heic,.heif,.mov,.mp4', hidden: true });
   const viewSeg = h('div', { class: 'seg' });
@@ -112,7 +114,7 @@ export async function mount(root, ctx) {
       onclick: () => { f.folder = f.folder === val ? null : val; shownLimit = PAGE; side.classList.remove('open'); draw(); } }, h('span', { class: 'grow' }, label), h('span', { class: 'n' }, n));
     side.replaceChildren(
       h('div', { class: 'md-sidesec' }, h('div', { class: 'md-sidehead' }, '모두'),
-        fBtn('전체 사진·동영상', null, items.length)),
+        fBtn('전체 사진보관함', null, items.length)),
       h('div', { class: 'md-sidesec' },
         h('div', { class: 'md-sidehead' }, '폴더', h('button', { class: 'btn small ghost', onclick: newFolder }, '＋')),
         ...[...tree.keys()].sort((a, b) => a.localeCompare(b, 'ko')).map(p => fBtn(p.split('/').pop(), p, count(i => i.folder === p || (i.folder || '').startsWith(p + '/')), tree.get(p))),
@@ -515,7 +517,7 @@ export async function mount(root, ctx) {
           const chk = h('input', { type: 'checkbox', checked: pick.has(it.id), onchange: e => e.target.checked ? pick.add(it.id) : pick.delete(it.id) });
           return h('label', { class: 'md-dupitem' }, t, h('span', { class: 'row' }, chk, h('span', { class: 'muted' }, `${fmtSize(it.size)} · ${(it.taken || '').slice(0, 16).replace('T', ' ')}`)));
         })))));
-    const r = await dialog({ title: '중복 사진·동영상', wide: true, body, actions: [{ label: '닫기' }, { label: '고른 것 삭제', kind: 'danger', value: 'del' }] });
+    const r = await dialog({ title: '중복 사진보관함', wide: true, body, actions: [{ label: '닫기' }, { label: '고른 것 삭제', kind: 'danger', value: 'del' }] });
     if (r === 'del' && pick.size) await removeItems(items.filter(i => pick.has(i.id)));
   }
 
@@ -570,7 +572,7 @@ export async function mount(root, ctx) {
     } catch {}
     const r = await dialog({ title: '저장공간', body: [
       h('div', { class: 'md-kvs' },
-        h('div', { class: 'md-kv' }, h('span', { class: 'k' }, '사진·동영상 원본'), h('span', { class: 'v' }, `${items.length.toLocaleString('ko-KR')}개 · ${fmtSize(total)} (Google Drive)`)),
+        h('div', { class: 'md-kv' }, h('span', { class: 'k' }, '사진보관함 원본'), h('span', { class: 'v' }, `${items.length.toLocaleString('ko-KR')}개 · ${fmtSize(total)} (Google Drive)`)),
         quota ? h('div', { class: 'md-kv' }, h('span', { class: 'k' }, '계정 전체'), h('span', { class: 'v' }, quota)) : null,
         h('div', { class: 'md-kv' }, h('span', { class: 'k' }, '이 기기에 둔 미리보기'), h('span', { class: 'v' }, fmtSize(cache)))),
       h('p', { class: 'hint' }, '원본은 Google Drive에만 있고, 이 기기에는 작은 미리보기만 둡니다(iCloud ‘저장 공간 최적화’와 같은 방식). 미리보기를 비워도 다시 볼 때 자동으로 받아옵니다.')],
@@ -583,9 +585,10 @@ export async function mount(root, ctx) {
   const redraw = debounce(onChange, 300);
   db.events.addEventListener('change', redraw);
   await load();
+  if (f.theme && !meta.themes.includes(f.theme)) { meta.themes.push(f.theme); saveMeta(); }
   draw();
   setTimeout(() => searchIn.focus(), 0);
-  return { open: () => {}, cleanup: () => { closeViewer(); db.events.removeEventListener('change', redraw); }, addFiles };
+  return { open: p => { const t = themeParam(p); if (t) { f.theme = t; if (!meta.themes.includes(t)) { meta.themes.push(t); saveMeta(); } draw(); } }, cleanup: () => { closeViewer(); db.events.removeEventListener('change', redraw); }, addFiles };
 }
 
 const TRASH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6.5 7l.9 11.6A1.5 1.5 0 0 0 8.9 20h6.2a1.5 1.5 0 0 0 1.5-1.4L17.5 7M10.2 11v5.2M13.8 11v5.2"/></svg>';

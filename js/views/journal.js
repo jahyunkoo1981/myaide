@@ -80,27 +80,48 @@ export async function mount(root, ctx) {
     noAi = !!(e && e.noAi);
     ed = richEditor({ value: e ? e.body : '', placeholder: '오늘 한 일, 이슈, 내일 할 일을 적어 보세요.', onChange: () => { dirty = true; state.textContent = '저장 중…'; save(); } });
     const isToday = d === today();
+    const go = n => { const p = new Date(dd); p.setDate(p.getDate() + n); ctx.go('journal', ymd(p)); };
+    const delBtn = h('button', { class: 'btn small ghost danger', title: '이 날 일지 삭제', onclick: async () => {
+      const has = (await db.get('journal', d)) || plain(ed.get()) || ed.get().includes('<img');
+      if (!has) { toast('지울 일지가 없습니다'); return; }
+      if (!await confirmBox(`${dd.getMonth() + 1}월 ${dd.getDate()}일 업무일지를 삭제할까요?`, '삭제', true)) return;
+      save.cancel(); dirty = false; await db.remove('journal', d); ed.set(''); state.textContent = '삭제했습니다'; toast('삭제했습니다');
+    } }, '삭제');
+    const aiBtn = noAiButton(noAi, async v => { noAi = v; const cur = await db.get('journal', d); if (cur || plain(ed.get())) await db.put('journal', d, { date: d, body: ed.get(), ...(v ? { noAi: true } : {}) }); });
+    // 폰: 한 주 날짜 줄 (일지 쓴 날은 점 표시)
+    const ws = new Date(dd); ws.setDate(dd.getDate() - dd.getDay());
+    const week = h('div', { class: 'jr-week' }, Array.from({ length: 7 }, (_, i) => {
+      const x = new Date(ws); x.setDate(ws.getDate() + i); const k = ymd(x); const en = entries.get(k);
+      return h('button', { type: 'button', class: 'jr-day' + (k === d ? ' sel' : '') + (k === today() ? ' today' : '') + (en && plain(en.body) ? ' has' : '') + (i === 0 ? ' sun' : i === 6 ? ' sat' : ''), onclick: () => ctx.go('journal', k), 'aria-label': k },
+        h('small', null, WEEK[i]), h('b', null, x.getDate()), h('i'));
+    }));
     editorPane.replaceChildren(
       h('div', { class: 'stamp' },
         h('span', { class: 'day' }, pad2(dd.getDate())),
         h('span', { class: 'rest' },
           h('span', { class: 'ym' }, `${dd.getFullYear()}년 ${dd.getMonth() + 1}월`),
-          h('span', { class: 'wd' }, WEEK[dd.getDay()] + '요일', isToday ? h('span', { class: 'today' }, '오늘') : null)),
+          h('span', { class: 'wd' }, WEEK[dd.getDay()] + '요일', isToday ? h('span', { class: 'today' }, '오늘') : null),
+          state),
+        h('span', { class: 'jr-arrows' },
+          h('button', { class: 'jr-arrow', onclick: () => go(-7), 'aria-label': '지난주' }, '«'),
+          isToday ? null : h('button', { class: 'jr-arrow jr-today', onclick: () => ctx.go('journal', today()) }, '오늘'),
+          h('button', { class: 'jr-arrow', onclick: () => go(7), 'aria-label': '다음 주' }, '»')),
         h('span', { class: 'stamp-nav' },
           h('button', { class: 'btn small ghost back-btn', onclick: () => split.classList.remove('has-open') }, '‹ 날짜 목록'),
-          h('span', { class: 'grow' }), state,
-          noAiButton(noAi, async v => { noAi = v; const cur = await db.get('journal', d); if (cur || plain(ed.get())) await db.put('journal', d, { date: d, body: ed.get(), ...(v ? { noAi: true } : {}) }); }),
-          h('button', { class: 'btn small ghost danger', title: '이 날 일지 삭제', onclick: async () => {
-            const has = (await db.get('journal', d)) || plain(ed.get()) || ed.get().includes('<img');
-            if (!has) { toast('지울 일지가 없습니다'); return; }
-            if (!await confirmBox(`${dd.getMonth() + 1}월 ${dd.getDate()}일 업무일지를 삭제할까요?`, '삭제', true)) return;
-            save.cancel(); dirty = false; await db.remove('journal', d); ed.set(''); state.textContent = '삭제했습니다'; toast('삭제했습니다');
-          } }, '삭제'),
-          h('button', { class: 'btn small ghost', onclick: () => { const p = new Date(dd); p.setDate(p.getDate() - 1); ctx.go('journal', ymd(p)); }, 'aria-label': '전날' }, '‹ 전날'),
-          h('button', { class: 'btn small ghost', onclick: () => { const p = new Date(dd); p.setDate(p.getDate() + 1); ctx.go('journal', ymd(p)); }, 'aria-label': '다음날' }, '다음날 ›'))),
+          h('span', { class: 'grow' }),
+          plain(ed.get()) ? null : h('button', { class: 'btn small ghost', title: '오늘 한 일·이슈·내일 할 일 양식', onclick: () => {
+            ed.set('<h2>오늘 한 일</h2><ul><li><br></li></ul><h2>이슈</h2><ul><li><br></li></ul><h2>내일 할 일</h2><ul class="check"><li><br></li></ul>');
+            dirty = true; state.textContent = '저장 중…'; save(); ed.focus();
+            const li = ed.body.querySelector('li'); if (li) { const r = document.createRange(); r.setStart(li, 0); r.collapse(true); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+          } }, '양식 넣기'),
+          aiBtn, delBtn,
+          h('button', { class: 'btn small ghost jr-dnav', onclick: () => go(-1), 'aria-label': '전날' }, '‹ 전날'),
+          h('button', { class: 'btn small ghost jr-dnav', onclick: () => go(1), 'aria-label': '다음날' }, '다음날 ›'))),
+      week,
       h('div', { style: { height: '12px' } }),
       ed.toolbar, h('div', { class: 'doc-wrap' }, h('div', { class: 'doc-body' }, ed.body), ed.toc));
     state.textContent = e ? '' : '새 일지';
+    state.classList.toggle('new', !e);
     drawCal(); drawList();
   };
 

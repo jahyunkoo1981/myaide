@@ -17,7 +17,9 @@ export const KINDS = {
   mindmaps: { label: 'AI 마인드맵', date: r => day(r.updatedAt), title: r => r.title || (r.root && r.root.text) || '마인드맵', text: r => treeText(r.root) },
   schedule: { label: '일정', date: r => r.date, title: r => r.title, text: r => [r.calendar === 'lunar' ? '음력' : '', r.yearly ? '매년' : '', r.time || '', r.memo || ''].filter(Boolean).join(' ') },
   ledger: { label: '가계부', date: r => r.date, title: r => `${r.kind === 'in' ? '수입' : '지출'} ${r.cat || ''} ${won(r.amount)}`, text: r => r.memo || '' },
-  media: { label: '사진·동영상', date: r => (r.taken || '').slice(0, 10) || day(r.updatedAt), title: r => r.name || '사진', text: r => [r.folder, (r.themes || []).join(' '), r.aiDesc, (r.aiTags || []).join(' '), r.memo, r.place].filter(Boolean).join(' / ') },
+  media: { label: '사진보관함', date: r => (r.taken || '').slice(0, 10) || day(r.updatedAt), title: r => r.name || '사진', text: r => [r.folder, (r.themes || []).join(' '), r.aiDesc, (r.aiTags || []).join(' '), r.memo, r.place].filter(Boolean).join(' / ') },
+  hoops: { label: '농구', date: r => r.date || r.start || (r.ts ? day(r.ts) : day(r.updatedAt)), title: r => r.kind === 'game' ? `[${r.type || '경기'}] ${r.title || (r.opponent ? 'vs ' + r.opponent : '')}${r.us !== '' && r.us != null ? ` ${r.us}:${r.them}` : ''}` : r.kind === 'tour' ? `[대회] ${r.name}` : r.kind === 'article' ? `[${r.type || '기사'}] ${r.title || r.url}` : r.kind === 'doc' ? `[${r.docType}] ${r.title || ''}` : `[카톡] ${r.who || ''}`,
+    text: r => [r.time, r.place, r.region, r.round, r.result, r.venue, r.division, r.url, r.summary, r.memo, r.stats && Object.entries(r.stats).filter(([, v]) => v !== '' && v != null).map(([k, v]) => k + ' ' + v).join(', '), r.kind === 'note' ? r.text : ''].filter(Boolean).join(' / ') },
   code: { label: 'VisualCode 파일', date: r => day(r.updatedAt), title: r => r.path || r.id, text: r => r.content || '' },
   milestones: { label: '마일스톤', date: r => r.due || day(r.updatedAt), title: r => r.title || '', text: r => [r.stage, r.memo].filter(Boolean).join(' ') }
 };

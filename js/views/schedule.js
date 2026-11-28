@@ -49,7 +49,10 @@ export async function mount(root, ctx) {
   const head = h('div', { class: 'view-head' });
   const grid = h('div', { class: 'cal', role: 'grid' });
   const side = h('div');
-  root.append(head, h('div', { class: 'pad', style: { maxWidth: '1300px' } }, grid, side));
+  const dayBox = h('div', { class: 'cal-day' });   // 폰: 누른 날의 일정 목록
+  const phone = () => matchMedia('(max-width: 640px)').matches;
+  let picked = today();
+  root.append(head, h('div', { class: 'pad cal-wrap', style: { maxWidth: '1300px' } }, grid, dayBox, side));
 
   const load = async () => { events = await db.all('schedule'); };
 
@@ -164,17 +167,31 @@ export async function mount(root, ctx) {
       const k = ymd(d), l = solarToLunar(k);
       const evs = byDay.get(k) || [];
       grid.append(h('div', {
-        class: 'cell' + (d.getMonth() !== m ? ' out' : '') + (k === today() ? ' today' : '') + (d.getDay() === 0 ? ' sun' : ''),
+        class: 'cell' + (d.getMonth() !== m ? ' out' : '') + (k === today() ? ' today' : '') + (d.getDay() === 0 ? ' sun' : '') + (d.getDay() === 6 ? ' sat' : '') + (evs.length ? ' has' : '') + (k === picked ? ' picked' : ''),
         role: 'gridcell', tabindex: '0', 'aria-label': k + (evs.length ? `, 일정 ${evs.length}개` : ''),
-        onclick: e => { if (!e.target.closest('.ev')) edit(null, k); },
+        onclick: e => { if (e.target.closest('.ev') && !phone()) return; if (phone()) { picked = k; draw(); dayBox.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } else edit(null, k); },
         onkeydown: e => { if (e.key === 'Enter') edit(null, k); }
       },
         h('div', { class: 'num' }, h('span', null, d.getDate()), l ? h('span', { class: 'lunar' }, l.d === 1 || l.d === 15 ? `음 ${l.m}.${l.d}` : '') : null),
-        evs.slice(0, 4).map(o => h('div', { class: 'ev ' + (o.type || 'other'), title: o.title, onclick: () => edit(o, o.on) },
-          (o.time ? o.time + ' ' : '') + o.title)),
-        evs.length > 4 ? h('div', { class: 'muted', style: { fontSize: '12px' } }, `+${evs.length - 4}`) : null));
+        evs.slice(0, phone() ? 2 : 4).map(o => h('div', { class: 'ev ' + (o.type || 'other'), title: o.title, onclick: () => { if (!phone()) edit(o, o.on); } },
+          phone() ? o.title : (o.time ? o.time + ' ' : '') + o.title)),
+        evs.length > (phone() ? 2 : 4) ? h('div', { class: 'ev-more' }, `+${evs.length - (phone() ? 2 : 4)}`) : null));
     }
+    drawDay(byDay);
     drawSide();
+  };
+
+  const typeColor = k => (TYPES.find(t => t.key === k) || TYPES[4]).color;
+  const card = o => h('button', { class: 'ag-item', style: { '--c': typeColor(o.type) }, onclick: () => edit(o, o.on) },
+    h('span', { class: 'ag-date' }, h('b', null, parseYmd(o.on).getDate()), h('small', null, WEEK[parseYmd(o.on).getDay()])),
+    h('span', { class: 'ag-body' }, h('span', { class: 'ag-title' }, o.title), h('span', { class: 'ag-meta' }, [o.time || '종일', typeLabel(o.type), o.calendar === 'lunar' ? '음력' : '', daysUntil(o.on) >= 0 ? dday(o.on) : ''].filter(Boolean).join(' · '))));
+  const drawDay = byDay => {
+    if (!phone()) { dayBox.replaceChildren(); return; }
+    const d = parseYmd(picked), evs = (byDay && byDay.get(picked)) || [];
+    dayBox.replaceChildren(
+      h('div', { class: 'cal-day-head' }, h('h2', null, `${d.getMonth() + 1}월 ${d.getDate()}일 ${WEEK[d.getDay()]}요일`, picked === today() ? h('span', { class: 'pill' }, '오늘') : null),
+        h('button', { class: 'btn small primary', onclick: () => edit(null, picked) }, '+ 이 날 일정')),
+      evs.length ? h('div', { class: 'ag-list' }, evs.map(card)) : h('p', { class: 'muted cal-empty' }, '이 날은 일정이 없습니다. 날짜를 누르면 그 날 일정을 볼 수 있어요.'));
   };
 
   const drawSide = async () => {
@@ -186,10 +203,7 @@ export async function mount(root, ctx) {
         h('table', { class: 'data' }, h('tbody', null, reminders.map(o => h('tr', { class: 'clickable', onclick: () => edit(o, o.on) },
           h('td', { style: { width: '120px' } }, dday(o.on)), h('td', null, o.title), h('td', { class: 'muted' }, typeLabel(o.type))))))) : null,
       h('section', { class: 'block' }, h('h2', null, '앞으로 30일'),
-        list.length ? h('table', { class: 'data' }, h('tbody', null, list.map(o => h('tr', { class: 'clickable', onclick: () => edit(o, o.on) },
-          h('td', { style: { width: '150px' } }, `${o.on} (${WEEK[parseYmd(o.on).getDay()]})`),
-          h('td', null, (o.time ? o.time + ' ' : '') + o.title, o.calendar === 'lunar' ? h('span', { class: 'muted' }, ' · 음력') : null),
-          h('td', { class: 'muted' }, typeLabel(o.type)))))) : h('p', { class: 'muted' }, '30일 안에 잡힌 일정이 없습니다.'))].filter(Boolean));
+        list.length ? h('div', { class: 'ag-list' }, list.map(o => { const c = card(o); c.querySelector('.ag-date small').textContent = `${parseYmd(o.on).getMonth() + 1}월 · ${WEEK[parseYmd(o.on).getDay()]}`; return c; })) : h('p', { class: 'muted' }, '30일 안에 잡힌 일정이 없습니다.'))].filter(Boolean));
   };
 
   async function edit(ev, onDate) {

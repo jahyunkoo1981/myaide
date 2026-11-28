@@ -23,6 +23,7 @@ const VIEWS = {
   schedule: () => import('./views/schedule.js'),
   mindmap: () => import('./views/mindmap.js'),
   media: () => import('./views/media.js'),
+  hoops: () => import('./views/hoops.js'),
   milestones: () => import('./views/milestones.js'),
   widgets: () => import('./views/widgets.js'),
   ledger: () => import('./views/ledger.js'),
@@ -93,6 +94,8 @@ async function boot() {
   }
   maybeAutoBackup();
   setTimeout(() => import('./views/onboarding.js').then(m => m.maybeOnboard()).catch(() => {}), 800);   // 처음 쓰는 사람 안내
+  // 새 메뉴 '농구'를 폰 메뉴에 한 번 넣어 줌 (사진보관함 다음)
+  setTimeout(async () => { try { if (await db.kvGet('menu.hoops')) return; await db.kvSet('menu.hoops', true); const pt = prefs().phoneTabs || []; if (!pt.includes('hoops')) { const { save } = await import('./prefs.js'); const i = pt.indexOf('media'); const n = [...pt]; n.splice(i >= 0 ? i + 1 : n.length, 0, 'hoops'); await save({ phoneTabs: n }); } } catch { } }, 1500);
   if (native.available) setTimeout(checkUpdate, 8000);
 }
 

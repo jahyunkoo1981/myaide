@@ -32,7 +32,7 @@ function parseSrt(text) {
   return out;
 }
 
-// items: media records; opts.download(item) -> Blob of the original. Resolves to File[] to add to 사진·동영상.
+// items: media records; opts.download(item) -> Blob of the original. Resolves to File[] to add to 사진보관함.
 export function openVideoEditor(items, { download }) {
   return new Promise(resolve => {
     const clips = items.map(it => ({ it, blob: null, url: null }));
@@ -103,7 +103,7 @@ export function openVideoEditor(items, { download }) {
           ...splits.map((t, i) => h('span', { class: 'chip' }, fmt(t), h('button', { class: 've-x', onclick: () => { splits.splice(i, 1); drawTools(); } }, '✕')))),
         h('button', { class: 'btn primary', disabled: !splits.length, onclick: () => run('split') }, `${splits.length + 1}개로 나누기`)];
       else if (mode === 'join') body = [
-        h('p', { class: 'hint' }, clips.length > 1 ? '왼쪽 순서대로 이어 붙입니다(↑↓로 순서 변경). 같은 휴대폰·같은 설정으로 찍은 영상끼리 합칠 수 있습니다.' : '합칠 동영상을 사진·동영상 화면에서 두 개 이상 골라 ‘동영상 합치기·편집’을 누르세요.'),
+        h('p', { class: 'hint' }, clips.length > 1 ? '왼쪽 순서대로 이어 붙입니다(↑↓로 순서 변경). 같은 휴대폰·같은 설정으로 찍은 영상끼리 합칠 수 있습니다.' : '합칠 동영상을 사진보관함 화면에서 두 개 이상 골라 ‘동영상 합치기·편집’을 누르세요.'),
         h('button', { class: 'btn primary', disabled: clips.length < 2, onclick: () => run('join') }, `${clips.length}개 합치기`)];
       else if (mode === 'subs') {
         const rows = h('div', { class: 've-subs' }, ...subs.map((s, i) => h('div', { class: 've-sub' },
@@ -182,7 +182,7 @@ export function openVideoEditor(items, { download }) {
     function drawOut() {
       out.replaceChildren(...(results.length ? [h('div', { class: 'fl-sec-t', style: { marginTop: '14px' } }, '만든 동영상'),
         ...results.map(fl => h('div', { class: 've-clip' }, h('span', { class: 've-clipname' }, fl.name), h('button', { class: 'btn small ghost', onclick: () => saveFile(fl.name, fl) }, '내려받기'))),
-        h('p', { class: 'hint' }, '닫으면 만든 동영상이 사진·동영상에 올라갑니다.')] : []));
+        h('p', { class: 'hint' }, '닫으면 만든 동영상이 사진보관함에 올라갑니다.')] : []));
     }
     drawList();
     select(0);

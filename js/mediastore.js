@@ -1,4 +1,4 @@
-// 사진·동영상 storage: originals go to Google Drive untouched (MY AIDE/media), uploaded in large resumable
+// 사진보관함 storage: originals go to Google Drive untouched (MY AIDE/media), uploaded in large resumable
 // chunks with several files at once; downloads fetch byte ranges in parallel. Each item also gets a small
 // thumbnail and a screen-size preview (JPEG) so every device can browse without downloading originals —
 // the same idea as iCloud "저장 공간 최적화".
@@ -14,7 +14,7 @@ const DL_PARALLEL = 4;
 
 export function backend() {
   const b = sync.state.backend;
-  if (!b || b.kind !== 'drive') throw new Error('사진·동영상은 Google Drive에 저장할 때 쓸 수 있습니다. (업무망 ‘이 PC에만 저장’ 모드에서는 쓸 수 없습니다)');
+  if (!b || b.kind !== 'drive') throw new Error('사진보관함은 Google Drive에 저장할 때 쓸 수 있습니다. (업무망 ‘이 PC에만 저장’ 모드에서는 쓸 수 없습니다)');
   return b;
 }
 

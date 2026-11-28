@@ -119,9 +119,10 @@ export async function mount(root) {
     const readLocal = async () => {
       status.classList.remove('done', 'warn'); bar.style.width = '3%'; statusText.textContent = '영수증 글자 읽는 중…';
       try {
-        rawText = await R.ocr(file, (p, label) => { bar.style.width = Math.round(p * 100) + '%'; statusText.textContent = `${label}… ${Math.round(p * 100)}%`; });
+        const got = await R.ocrFull(file, (p, label) => { bar.style.width = Math.round(p * 100) + '%'; statusText.textContent = `${label}… ${Math.round(p * 100)}%`; });
+        rawText = got.text;
         rawBox.textContent = rawText.trim() || '(읽은 글자가 없습니다)';
-        const opts = await OL.parseOptions();
+        const opts = { ...(await OL.parseOptions()), boxes: got.boxes };
         const parsed = R.parseReceipt(rawText, opts);
         before = { ...parsed };
         const { fields, applied } = await OL.apply(parsed, rawText, (t, o) => R.parseReceipt(t, { ...opts, totalKeys: [...(o.totalKeys || []), ...opts.totalKeys] }));

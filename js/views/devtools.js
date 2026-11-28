@@ -5,15 +5,15 @@ import { native } from '../native.js';
 import * as db from '../db.js';
 import { prefs } from '../prefs.js';
 
-export const APP_VERSION = '3.1.0';
+export const APP_VERSION = '3.3.0';
 
 const API = [
-  { name: 'Google Drive API v3', who: 'Google', use: '모든 기록 동기화(내 드라이브 › MY AIDE 폴더), 백업, 사진·동영상 원본·미리보기 저장', screens: '전체 · 백업 · 사진·동영상 · VisualCode(내 드라이브)', cost: '무료 (구글 계정 저장공간 사용)', scope: 'drive.file — MY AIDE가 만든 파일만 접근', link: 'https://developers.google.com/drive/api' },
+  { name: 'Google Drive API v3', who: 'Google', use: '모든 기록 동기화(내 드라이브 › MY AIDE 폴더), 백업, 사진보관함 원본·미리보기 저장', screens: '전체 · 백업 · 사진보관함 · VisualCode(내 드라이브)', cost: '무료 (구글 계정 저장공간 사용)', scope: 'drive.file — MY AIDE가 만든 파일만 접근', link: 'https://developers.google.com/drive/api' },
   { name: 'Google OAuth 2.0', who: 'Google', use: '구글 계정으로 로그인, 접근 토큰 발급·갱신', screens: '처음 연결 · 설정', cost: '무료', scope: 'Windows 앱은 데스크톱 클라이언트, 웹은 웹 클라이언트 ID', link: 'https://developers.google.com/identity/protocols/oauth2' },
   { name: 'OpenAI Chat Completions', who: 'OpenAI', use: '질문 답변, 생각 정리, 회의 요약, 코드 설명·수정', screens: 'AIDE · AI 마인드맵 · 회의록(요약) · VisualCode(AI 도우미)', cost: '사용량만큼 유료 (내 API 키)', scope: () => `모델: ${prefs().aiModel || 'gpt-4o-mini'} (설정에서 변경)`, link: 'https://platform.openai.com/docs/api-reference/chat' },
   { name: 'OpenAI Audio Transcriptions', who: 'OpenAI', use: '녹음 → 글자 받아쓰기 (한국어)', screens: '회의록', cost: '사용량만큼 유료', scope: () => `모델: ${prefs().transcribeModel || 'gpt-4o-mini-transcribe'} · 한 번에 25MB까지`, link: 'https://platform.openai.com/docs/api-reference/audio' },
-  { name: 'OpenAI Vision (이미지 이해)', who: 'OpenAI', use: '사진 내용 설명·태그 만들기', screens: '사진·동영상 (AI 태그)', cost: '사용량만큼 유료', scope: '작은 미리보기(저해상도)만 전송', link: 'https://platform.openai.com/docs/guides/vision' },
-  { name: 'OpenAI Embeddings', who: 'OpenAI', use: '뜻으로 찾기(“바다에서 찍은 사진”)', screens: '사진·동영상 (AI 검색)', cost: '사용량만큼 유료 (매우 저렴)', scope: 'text-embedding-3-small · 256차원', link: 'https://platform.openai.com/docs/guides/embeddings' },
+  { name: 'OpenAI Vision (이미지 이해)', who: 'OpenAI', use: '사진 내용 설명·태그 만들기', screens: '사진보관함 (AI 태그)', cost: '사용량만큼 유료', scope: '작은 미리보기(저해상도)만 전송', link: 'https://platform.openai.com/docs/guides/vision' },
+  { name: 'OpenAI Embeddings', who: 'OpenAI', use: '뜻으로 찾기(“바다에서 찍은 사진”)', screens: '사진보관함 (AI 검색)', cost: '사용량만큼 유료 (매우 저렴)', scope: 'text-embedding-3-small · 256차원', link: 'https://platform.openai.com/docs/guides/embeddings' },
   { name: 'PeerJS 중계 서버 + WebRTC', who: 'PeerJS (공개 서버)', use: '원격지원 연결 주선 — 화면·마우스 신호는 두 기기가 직접 주고받음', screens: '원격지원', cost: '무료 공개 서버', scope: '0.peerjs.com', link: 'https://peerjs.com' },
   { name: 'GitHub Pages', who: 'GitHub', use: '웹앱(폰·태블릿·브라우저용) 호스팅', screens: '웹·폰 전체', cost: '무료', scope: 'jahyunkoo1981.github.io/myaide', link: 'https://pages.github.com' },
   { name: 'ChatGPT · Claude 웹사이트', who: 'OpenAI · Anthropic', use: '질문을 그 사이트에서 이어 묻기 (링크만 열고 데이터는 보내지 않음)', screens: 'AIDE', cost: '각 서비스 요금', scope: '새 창으로 열기', link: 'https://chatgpt.com' }
@@ -22,13 +22,13 @@ const API = [
 const OSS = [
   { name: 'Monaco Editor', ver: '0.52.2', lic: 'MIT', by: 'Microsoft', use: 'VS Code와 같은 코드 편집기 (색 구분, 찾기, 비교 화면)', screens: 'VisualCode', file: 'vendor/monaco/LICENSE', extra: 'vendor/monaco/ThirdPartyNotices.txt', link: 'https://github.com/microsoft/monaco-editor' },
   { name: 'PeerJS', ver: '1.5.4', lic: 'MIT', by: 'Michelle Bu, Eric Zhang', use: 'WebRTC 연결을 쉽게 만드는 라이브러리', screens: '원격지원 (상대방 페이지 포함)', file: 'vendor/peerjs.LICENSE', link: 'https://github.com/peers/peerjs' },
-  { name: 'ffmpeg.wasm (@ffmpeg/ffmpeg)', ver: '0.12.15', lic: 'MIT', by: 'ffmpegwasm', use: '브라우저 안에서 FFmpeg 실행', screens: '사진·동영상 › 동영상 편집', link: 'https://github.com/ffmpegwasm/ffmpeg.wasm' },
-  { name: 'FFmpeg core (@ffmpeg/core)', ver: '0.12.10', lic: 'GPL-2.0-or-later', by: 'FFmpeg 개발자들', use: '자르기·나누기·합치기·자막·소리 끄기 (원본 화질 그대로 복사)', screens: '사진·동영상 › 동영상 편집', file: 'vendor/ffmpeg/ffmpeg-core-LICENSE.txt', link: 'https://ffmpeg.org/legal.html', note: '개인 사용은 제한 없음. 이 프로그램을 남에게 배포할 때는 FFmpeg 소스 위치를 함께 알려야 합니다.' },
+  { name: 'ffmpeg.wasm (@ffmpeg/ffmpeg)', ver: '0.12.15', lic: 'MIT', by: 'ffmpegwasm', use: '브라우저 안에서 FFmpeg 실행', screens: '사진보관함 › 동영상 편집', link: 'https://github.com/ffmpegwasm/ffmpeg.wasm' },
+  { name: 'FFmpeg core (@ffmpeg/core)', ver: '0.12.10', lic: 'GPL-2.0-or-later', by: 'FFmpeg 개발자들', use: '자르기·나누기·합치기·자막·소리 끄기 (원본 화질 그대로 복사)', screens: '사진보관함 › 동영상 편집', file: 'vendor/ffmpeg/ffmpeg-core-LICENSE.txt', link: 'https://ffmpeg.org/legal.html', note: '개인 사용은 제한 없음. 이 프로그램을 남에게 배포할 때는 FFmpeg 소스 위치를 함께 알려야 합니다.' },
   { name: 'Tesseract.js', ver: '5.1.1 (core 5.1.1, 한글·영문 학습 데이터 4.0.0_best_int)', lic: 'Apache-2.0', by: 'Jerome Wu 외 (Tesseract OCR: Google)', use: '영수증 글자 읽기 — 기기 안에서, 인터넷·API 키 없이', screens: '가계부 (영수증 찍기)', file: 'vendor/tesseract/LICENSE.md', link: 'https://github.com/naptha/tesseract.js' },
   { name: 'ExcelJS', ver: '4.4.0', lic: 'MIT', by: 'Guyon Roche 외', use: '엑셀(xlsx) 읽기·쓰기 (서식 유지)', screens: '문서 가리기', file: 'vendor/exceljs/LICENSE', link: 'https://github.com/exceljs/exceljs' },
   { name: 'JSZip', ver: '3.10.2', lic: 'MIT (또는 GPL-3.0 중 MIT 선택)', by: 'Stuart Knightley 외', use: '워드(docx)·파워포인트(pptx) 안의 글 고치기', screens: '문서 가리기', file: 'vendor/jszip/LICENSE.markdown', link: 'https://github.com/Stuk/jszip' },
   { name: 'PDF.js', ver: '4.10.38', lic: 'Apache-2.0', by: 'Mozilla', use: 'PDF에서 글자 뽑기 (한글 글꼴 지도 포함)', screens: '문서 가리기', file: 'vendor/pdfjs/LICENSE', link: 'https://github.com/mozilla/pdf.js' },
-  { name: 'exifr', ver: '7.x', lic: 'MIT', by: 'Mike Kovařík', use: '사진 촬영일·카메라·위치·HEIC 정보 읽기', screens: '사진·동영상 (일자별 정리, 중복 찾기)', file: 'vendor/exifr.LICENSE', link: 'https://github.com/MikeKovarik/exifr' },
+  { name: 'exifr', ver: '7.x', lic: 'MIT', by: 'Mike Kovařík', use: '사진 촬영일·카메라·위치·HEIC 정보 읽기', screens: '사진보관함 (일자별 정리, 중복 찾기)', file: 'vendor/exifr.LICENSE', link: 'https://github.com/MikeKovarik/exifr' },
   { name: 'korean-lunar-calendar', ver: '—', lic: 'MIT', by: 'Jinil Lee', use: '음력 ↔ 양력 변환', screens: '일정관리 (음력 기념일)', file: 'vendor/korean-lunar-calendar.LICENSE', link: 'https://github.com/usingsky/korean_lunar_calendar_js' },
   { name: 'Pretendard Variable', ver: '1.3.x', lic: 'SIL OFL 1.1', by: '길형진', use: '화면 전체 한글·영문 글꼴', screens: '전체', file: 'vendor/fonts/Pretendard-LICENSE.txt', link: 'https://github.com/orioncactus/pretendard' },
   { name: 'Microsoft Edge WebView2 SDK', ver: '1.0.2903.40', lic: 'Microsoft (BSD 형식)', by: 'Microsoft', use: 'Windows 앱 안에 웹 화면 띄우기', screens: 'Windows 앱 전체 · 위젯', link: 'https://www.nuget.org/packages/Microsoft.Web.WebView2' },
@@ -70,7 +70,7 @@ const SCREENS = [
   ['MyPC Search', 'Windows 검색 색인, 전체 드라이브 목록(직접 구현)', 'System.Data.OleDb'],
   ['원격지원', 'PeerJS, WebRTC, 원격지원 도우미(.NET Framework 4)', 'PeerJS 중계 서버'],
   ['일정관리', 'korean-lunar-calendar (음력)', 'Drive'],
-  ['사진·동영상', 'exifr, ffmpeg.wasm, 나눠 올리기(재개 가능)', 'Drive · OpenAI Vision·Embeddings'],
+  ['사진보관함', 'exifr, ffmpeg.wasm, 나눠 올리기(재개 가능)', 'Drive · OpenAI Vision·Embeddings'],
   ['가계부', '직접 구현 (분류·합계)', 'Drive'],
   ['AIDE', '내 기록을 근거로 질문 답변', 'OpenAI Chat'],
   ['VisualCode', 'Monaco Editor, 터미널·Git(Windows 앱)', 'Drive · OpenAI Chat'],

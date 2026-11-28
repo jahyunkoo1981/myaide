@@ -150,7 +150,7 @@ export async function transcribe(blob, { seconds, ask } = {}) {
   return r.text || '';
 }
 
-// Picture understanding for 사진·동영상: a short Korean description + tags as JSON.
+// Picture understanding for 사진보관함: a short Korean description + tags as JSON.
 export async function describeImage(dataUrl, hint = '', opts = {}) {
   const out = await chat([
     { role: 'system', content: '사진을 보고 한국어로 검색용 정보를 만듭니다. 반드시 JSON 하나만 출력: {"desc":"한두 문장 설명","tags":["장소/사물/사람수/행동/계절/색 등 짧은 낱말 5~12개"]}. 사람의 신원(이름)은 추측하지 마세요.' },

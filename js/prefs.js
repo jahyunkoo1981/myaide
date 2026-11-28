@@ -16,7 +16,8 @@ export const TABS = [
   { key: 'search', label: 'MyPC Search', icon: 'files', group: 'work' },
   { key: 'remote', label: '원격지원', icon: 'remote', group: 'work' },
   { key: 'schedule', label: '일정관리', icon: 'schedule', group: 'personal' },
-  { key: 'media', label: '사진·동영상', icon: 'photos', group: 'personal' },
+  { key: 'media', label: '사진보관함', icon: 'photos', group: 'personal' },
+  { key: 'hoops', label: '농구', icon: 'hoops', group: 'personal' },
   { key: 'ledger', label: '가계부', icon: 'ledger', group: 'personal' },
   { key: 'aide', label: 'AIDE', icon: 'aide', group: 'personal' },
   { key: 'aimd', label: 'VisualCode', icon: 'code', group: 'personal' },
@@ -50,7 +51,7 @@ const DEFAULTS = {
   aiPrices: {},
   aiMask: { on: true, words: [], contact: true, money: true, secret: true, names: false },   // AI 정보 보호
   aiGeminiPaid: false,
-  phoneTabs: ['schedule', 'ledger', 'journal', 'aide', 'media', 'notes', 'meetings', 'mindmap'],   // 폰에서 쓸 메뉴(순서대로) — 설정 › 폰 메뉴
+  phoneTabs: ['schedule', 'ledger', 'journal', 'aide', 'media', 'hoops', 'notes', 'meetings', 'mindmap'],   // 폰에서 쓸 메뉴(순서대로) — 설정 › 폰 메뉴
   aiBlockRecordsOnRisk: true,           // 모델별 단가 직접 입력 {model: [입력, 출력]} USD/1M
   autoBackupDays: 1,
   keepBackups: 30

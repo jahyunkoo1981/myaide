@@ -111,7 +111,7 @@ export async function putBlob(id, blob, meta = {}) {
   await tx('blobs', 'readwrite', s => s.put({ id, blob, type: blob.type, uploaded: false, ...meta }));
   if (!meta.uploaded) dirtied();
 }
-// Picture previews kept on this device only (사진·동영상); can be cleared at any time.
+// Picture previews kept on this device only (사진보관함); can be cleared at any time.
 export async function cacheSize() {
   const rows = await tx('blobs', 'readonly', s => req2p(s.getAll()));
   return rows.filter(r => r.cache).reduce((n, r) => n + (r.blob?.size || 0), 0);

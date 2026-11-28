@@ -30,10 +30,6 @@ html[data-theme=dark] .cal .cell:hover { background: #212525; }
 html[data-theme=dark] .cal .cell.out { background: #232929; }
 html[data-theme=dark] .ev.anniv { border-color: #C8930A; }
 html[data-theme=dark] .ev.birthday { border-color: #C2477B; }
-@media (max-width: 640px) {
-html[data-theme=dark] .ev.anniv { background: #C8930A; }
-html[data-theme=dark] .ev.birthday { background: #C2477B; }
-}
 html[data-theme=dark] table.data tr.clickable:hover td { background: #212525; }
 html[data-theme=dark] dialog { box-shadow: 0 24px 60px rgba(0,0,0,0.60); }
 html[data-theme=dark] dialog::backdrop { background: rgba(29,42,48,.35); }
@@ -239,3 +235,45 @@ html[data-theme=dark] .rc-cat[aria-checked="true"] { color: #FFFFFF; }
 html[data-theme=dark] .ph-quick { color: #FFFFFF; }
 html[data-theme=dark] .ph-quick small { color: rgba(255,255,255,.85); }
 html[data-theme=dark] .ph-quick .ph-ico { background: rgba(29,29,29,.2); color: #FFFFFF; }
+html[data-theme=dark] .cal .cell.has { background: #1A1C2C; }
+html[data-theme=dark] .cal .cell.sat .num > span:first-child { color: #708DD4; }
+@media (max-width: 640px) {
+html[data-theme=dark] .cal .cell.today .num > span:first-child { color: #FFFFFF; }
+html[data-theme=dark] .cal .cell.has { background: #1C1E31; }
+html[data-theme=dark] .ev { color: #FFFFFF; background: #6E7A88; }
+html[data-theme=dark] .ev.meeting { background: #4A57D0; }
+html[data-theme=dark] .ev.anniv { background: #C8930A; }
+html[data-theme=dark] .ev.birthday { background: #C2477B; }
+html[data-theme=dark] .ev.approval { background: #2E8A5E; }
+html[data-theme=dark] .ev.other { background: #6E7A88; }
+html[data-theme=dark] .cal-day .pill { color: #E8B796; }
+}
+@media (max-width: 760px) {
+html[data-theme=dark] .jr-day.sat small, html[data-theme=dark] .jr-day.sat b { color: #708DD4; }
+}
+html[data-theme=dark] .hp-head { color: #FFFFFF; background: linear-gradient(135deg, #E8743B 0%, #C9562A 55%, #8E3A1E 100%); box-shadow: 0 8px 24px rgba(0,0,0,0.60); }
+html[data-theme=dark] .hp-ball { background: radial-gradient(circle at 35% 35%, #FF8F3D, #E06A2C 60%, #B44E1E); box-shadow: inset 0 0 0 2px rgba(0,0,0,0.54); }
+html[data-theme=dark] .hp-ball::before { background: linear-gradient(90deg, transparent 47%, rgba(60,25,10,.55) 47% 53%, transparent 53%), linear-gradient(0deg, transparent 47%, rgba(60,25,10,.55) 47% 53%, transparent 53%); }
+html[data-theme=dark] .hp-edit.btn { color: #FFFFFF; border: 1px solid rgba(54,54,54,.55); background: rgba(29,29,29,.12); }
+html[data-theme=dark] .hp-tab[aria-selected=true] { background: #2B2F45; color: #FFFFFF; border-color: #2B2F45; }
+html[data-theme=dark] .hp-card:hover { border-color: #E8743B; }
+html[data-theme=dark] .hp-date { background: #38291F; color: #E8A487; }
+html[data-theme=dark] .hp-game.k-연습 .hp-date { background: #273D33; color: #A2DCC5; }
+html[data-theme=dark] .hp-game.k-대회 .hp-date { background: #1E2135; color: #7F85CD; }
+html[data-theme=dark] .hp-tags .hp-stat { background: #38291F; color: #E8A487; }
+html[data-theme=dark] .hp-tags .hp-src { background: #484025; color: #FFE598; }
+html[data-theme=dark] .hp-tags .hp-res { background: #4D4327; color: #FFDE98; }
+html[data-theme=dark] .hp-score small { color: #FFFFFF; }
+html[data-theme=dark] .hp-score.r-승 small { background: #2E8A5E; }
+html[data-theme=dark] .hp-score.r-패 small { background: #C9566F; }
+html[data-theme=dark] .hp-score.r-무 small { background: #8D92A6; }
+html[data-theme=dark] .hp-dday { color: #E29273; background: #38291F; }
+html[data-theme=dark] .hp-next { background: #2B2F45; color: #FFFFFF; }
+html[data-theme=dark] .hp-next-dday { background: #E8743B; }
+html[data-theme=dark] .hp-next-place { color: #FFD3B8; }
+html[data-theme=dark] .hp-kakao-cta { border: 1px dashed #E0C25C; background: #37321E; color: #FFEBAA; }
+html[data-theme=dark] .hp-fab { background: #E8743B; color: #FFFFFF; box-shadow: 0 8px 20px rgba(0,0,0,0.60); }
+html[data-theme=dark] .hp-bar i { background: linear-gradient(180deg, #F08B4C, #D55E2A); }
+html[data-theme=dark] .hp-doc img, html[data-theme=dark] .hp-pdf { color: #D88497; }
+html[data-theme=dark] .hp-ph.vid::after { color: #FFFFFF; text-shadow: 0 1px 3px rgba(0,0,0,0.60); }
+html[data-theme=dark] .hp-tour-res { color: #E8A487; }

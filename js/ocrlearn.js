@@ -39,13 +39,13 @@ function lev(a, b) {
 function findStore(stores, name) {
   const k = norm(name); if (!k) return null;
   if (stores[k]) return stores[k];
-  let best = null, score = 0;
+  let best = null, score = 0, need = 1;
   for (const [key, v] of Object.entries(stores)) {
     if (key.length < 3 || Math.abs(key.length - k.length) > 2) continue;
     const s = 1 - lev(key, k) / Math.max(key.length, k.length);
-    if (s > score) { score = s; best = v; }
+    if (s > score) { score = s; best = v; need = Math.min(key.length, k.length) >= 6 ? 0.6 : 0.75; }   // 긴 이름은 두세 글자 틀려도 같은 가게로
   }
-  return score >= 0.75 ? best : null;
+  return score >= need ? best : null;
 }
 
 // 읽기 전에 쓸 추가 규칙 (합계 줄 이름, 숫자 오인식)

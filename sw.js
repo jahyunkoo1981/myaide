@@ -1,11 +1,12 @@
 // Offline app shell: the app opens without a connection; data lives in IndexedDB, not here.
-const VERSION = 'myaide-v3.1.0';
+const VERSION = 'myaide-v3.3.0';
+const MODELS = 'myaide-ocr-models-1';   // 영수증 인식 모델(약 21MB): 버전이 바뀌어도 다시 받지 않음
 const SHELL = [
   './', 'index.html', 'app.css', 'config.js', 'manifest.webmanifest', 'manual.md',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/korean-lunar-calendar.mjs',
   'js/main.js', 'js/util.js', 'js/db.js', 'js/native.js', 'js/auth.js', 'js/backends.js', 'js/sync.js', 'js/vault.js',
-  'js/prefs.js', 'js/conflicts.js', 'js/capture.js', 'js/editor.js', 'js/outline.js', 'js/naver.js', 'js/recorder.js', 'js/theme.js', 'dark.css', 'js/views/code.js', 'js/views/devtools.js', 'js/inkpad.js', 'js/imageeditor.js', 'js/lunar.js', 'js/md.js', 'js/openai.js', 'js/usage.js', 'js/views/usagepanel.js', 'js/privacy.js', 'js/views/privacypanel.js', 'js/views/masker.js', 'js/recordtools.js', 'js/receipt.js', 'js/license.js', 'js/views/users.js', 'js/views/home.js', 'js/views/phonemenu.js', 'js/views/feedback.js', 'js/views/onboarding.js', 'js/ocrlearn.js', 'js/views/receiptlearnpanel.js',
+  'js/prefs.js', 'js/conflicts.js', 'js/capture.js', 'js/editor.js', 'js/outline.js', 'js/naver.js', 'js/recorder.js', 'js/theme.js', 'dark.css', 'js/views/code.js', 'js/views/devtools.js', 'js/inkpad.js', 'js/imageeditor.js', 'js/lunar.js', 'js/md.js', 'js/openai.js', 'js/usage.js', 'js/views/usagepanel.js', 'js/privacy.js', 'js/views/privacypanel.js', 'js/views/masker.js', 'js/recordtools.js', 'js/receipt.js', 'js/license.js', 'js/views/users.js', 'js/views/home.js', 'js/views/phonemenu.js', 'js/views/feedback.js', 'js/views/onboarding.js', 'js/ocrlearn.js', 'js/views/receiptlearnpanel.js', 'js/ppocr.js', 'js/ppocr.worker.js', 'js/views/hoops.js', 'js/kakao.js',
   'js/views/journal.js', 'js/views/docs.js', 'js/views/knowledge.js', 'js/views/schedule.js', 'js/views/milestones.js',
   'js/views/ledger.js', 'js/views/accounts.js', 'js/views/meetings.js', 'js/views/aide.js', 'js/views/search.js', 'privacy.html',
   'js/views/remote.js', 'js/views/backup.js', 'js/views/settings.js', 'js/views/manual.js',
@@ -18,13 +19,17 @@ self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION && k !== MODELS).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 // Same-origin GETs: network first so updates show up right away; the cache is the offline fallback.
 // Google and OpenAI calls are never touched.
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  if (url.pathname.includes('/vendor/ppocr/')) {   // 모델은 한 번 받으면 그대로 씀
+    e.respondWith(caches.open(MODELS).then(async c => (await c.match(e.request, { ignoreSearch: true })) || fetch(e.request).then(r => { if (r.ok) c.put(e.request, r.clone()); return r; })));
+    return;
+  }
   e.respondWith(caches.open(VERSION).then(async cache => {
     const nav = e.request.mode === 'navigate';
     const key = nav && (url.pathname.endsWith('/') || url.pathname.endsWith('/index.html')) ? 'index.html' : nav ? url.pathname.split('/').pop() : e.request;
